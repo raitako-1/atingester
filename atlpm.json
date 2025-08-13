@@ -1,0 +1,9 @@
+{
+  "apiTypes": {
+    "TSServer": "./src/lexicon"
+  },
+  "schemaDir": "./lexicons",
+  "lexicons": {
+    "com.atproto.sync.subscribeRepos": "github"
+  }
+}

@@ -1,0 +1,15 @@
+on:
+  - push
+  - pull_request
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - run: pnpm i
+      - run: pnpm run codegen
+      - run: pnpm run clean
+      - run: pnpm run build

@@ -1,0 +1,43 @@
+{
+  "name": "atingester",
+  "version": "0.0.1",
+  "description": "ATProtocol Syncing Tools",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "codegen": "atlpm install -y",
+    "clean": "rimraf ./dist",
+    "build": "tsc -p ./"
+  },
+  "keywords": [],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raitako-1/atingester.git"
+  },
+  "author": "raitako_1",
+  "license": "MIT",
+  "dependencies": {
+    "@atproto/common": "^0.4.11",
+    "@atproto/common-web": "^0.4.2",
+    "@atproto/identity": "^0.4.8",
+    "@atproto/lexicon": "^0.4.12",
+    "@atproto/repo": "^0.8.5",
+    "@atproto/sync": "^0.1.30",
+    "@atproto/syntax": "^0.4.0",
+    "@atproto/xrpc-server": "^0.9.1",
+    "@bokuweb/zstd-wasm": "^0.0.27",
+    "multiformats": "^9.9.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.122",
+    "@types/ws": "^8.18.1",
+    "atlpm": "^3.0.6",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">= 18.7.0"
+  },
+  "packageManager": "pnpm@8.15.9"
+}
