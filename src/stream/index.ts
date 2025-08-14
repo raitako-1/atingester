@@ -6,3 +6,4 @@
 
 export * from './firehose'
 export * from './jetstream'
+export * from './turbostream'

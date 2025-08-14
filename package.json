@@ -1,6 +1,6 @@
 {
   "name": "atingester",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "ATProtocol Syncing Tools",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

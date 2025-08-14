@@ -4,6 +4,7 @@
   },
   "schemaDir": "./lexicons",
   "lexicons": {
+    "app.bsky.actor.defs": "github",
     "com.atproto.sync.subscribeRepos": "github"
   }
 }
