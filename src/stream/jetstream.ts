@@ -8,6 +8,7 @@ import {
 import { createDCtx, decompressUsingDict, init } from '@bokuweb/zstd-wasm'
 import fs from 'fs'
 import { CID } from 'multiformats/cid'
+import path from 'path'
 import { type ClientOptions } from 'ws'
 import {
   parseAccount,
@@ -156,7 +157,7 @@ export class JetstreamSubscription<T = unknown> {
       },
     })
     await init()
-    const dict = fs.readFileSync('./dict/zstd_dictionary')
+    const dict = fs.readFileSync(path.resolve(__dirname, '../../dict/zstd_dictionary'))
     for await (const chunk of ws) {
       try {
         if (this.opts.compress) {
