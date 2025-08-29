@@ -6,6 +6,7 @@ import {
   WebSocketKeepAlive,
 } from '@atproto/xrpc-server'
 import { createDCtx, decompressUsingDict, init } from '@bokuweb/zstd-wasm'
+import fs from 'fs'
 import { CID } from 'multiformats/cid'
 import { type ClientOptions } from 'ws'
 import {
@@ -155,8 +156,7 @@ export class JetstreamSubscription<T = unknown> {
       },
     })
     await init()
-    const res = await fetch('https://raw.githubusercontent.com/bluesky-social/jetstream/refs/heads/main/pkg/models/zstd_dictionary')
-    const dict = new Uint8Array(await res.arrayBuffer())
+    const dict = fs.readFileSync('./dict/zstd_dictionary')
     for await (const chunk of ws) {
       try {
         if (this.opts.compress) {
