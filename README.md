@@ -23,7 +23,7 @@ import { IdResolver } from '@atproto/identity'
 
 const ingester = new Ingester('Firehose', {
   idResolver: new IdResolver(),
-  handleEvt: async (evt) => {
+  handleEvent: async (evt) => {
     if (evt.event === 'create') {
       console.log(evt.record.text)
     }
@@ -31,7 +31,7 @@ const ingester = new Ingester('Firehose', {
   onInfo: (info) => {
     console.info(info)
   },
-  onError: (err) => {
+  onError: (err: Error) => {
     console.error(err)
   },
   service: 'wss://bsky.network',
@@ -59,7 +59,7 @@ import { IdResolver } from '@atproto/identity'
 
 const firehose = new Firehose({
   idResolver: new IdResolver(),
-  handleEvt: async (evt) => {
+  handleEvent: async (evt) => {
     if (evt.event === 'create') {
       console.log(evt.record.text)
     }
@@ -67,7 +67,7 @@ const firehose = new Firehose({
   onInfo: (info) => {
     console.info(info)
   },
-  onError: (err) => {
+  onError: (err: Error) => {
     console.error(err)
   },
   service: 'wss://bsky.network',
@@ -90,7 +90,7 @@ import { IdResolver } from '@atproto/identity'
 
 const jetstream = new Jetstream({
   idResolver: new IdResolver(),
-  handleEvt: async (evt) => {
+  handleEvent: async (evt) => {
     if (evt.event === 'create') {
       console.log(evt.record.text)
     }
@@ -98,7 +98,7 @@ const jetstream = new Jetstream({
   onInfo: (info) => {
     console.info(info)
   },
-  onError: (err) => {
+  onError: (err: Error) => {
     console.error(err)
   },
   service: 'wss://jetstream1.us-east.bsky.network',
@@ -120,8 +120,7 @@ import { Turbostream } from 'atingester'
 import { IdResolver } from '@atproto/identity'
 
 const turbostream = new Turbostream({
-  idResolver: new IdResolver(),
-  handleEvt: async (evt) => {
+  handleEvent: async (evt) => {
     if (evt.event === 'create') {
       console.log(evt.record.text)
     }
@@ -129,7 +128,7 @@ const turbostream = new Turbostream({
   onInfo: (info) => {
     console.info(info)
   },
-  onError: (err) => {
+  onError: (err: Error) => {
     console.error(err)
   },
   service: 'wss://api.graze.social',

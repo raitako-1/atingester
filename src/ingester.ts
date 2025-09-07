@@ -14,20 +14,20 @@ export type IngesterOptions = Omit<FirehoseOptions, 'handleEvent'> & {
 }
 
 export class Ingester {
-  private ing: Firehose | Jetstream | Turbostream
+  private ingester: Firehose | Jetstream | Turbostream
 
   constructor(mode: SubscriptionMode, opts: IngesterOptions) {
-    if (mode === 'Firehose') this.ing = new Firehose(opts)
-    else if (mode === 'Jetstream') this.ing = new Jetstream(opts)
-    else if (mode === 'Turbostream') this.ing = new Turbostream(opts)
+    if (mode === 'Firehose') this.ingester = new Firehose(opts)
+    else if (mode === 'Jetstream') this.ingester = new Jetstream(opts)
+    else if (mode === 'Turbostream') this.ingester = new Turbostream(opts)
     else throw new Error('Invalid ingester subscription mode.')
   }
 
   async start(): Promise<void> {
-    await this.ing.start()
+    await this.ingester.start()
   }
 
   async destroy(): Promise<void> {
-    await this.ing.destroy()
+    await this.ingester.destroy()
   }
 }

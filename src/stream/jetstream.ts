@@ -5,7 +5,7 @@ import { AtUri } from '@atproto/syntax'
 import {
   WebSocketKeepAlive,
 } from '@atproto/xrpc-server'
-import { createDCtx, decompressUsingDict, init } from '@bokuweb/zstd-wasm'
+import { createDCtx, decompressUsingDict, freeDCtx, init } from '@bokuweb/zstd-wasm'
 import fs from 'fs'
 import { CID } from 'multiformats/cid'
 import path from 'path'
@@ -161,7 +161,9 @@ export class JetstreamSubscription<T = unknown> {
     for await (const chunk of ws) {
       try {
         if (this.opts.compress) {
-          const decompressed = decompressUsingDict(createDCtx(), chunk, dict)
+          const dctx = createDCtx()
+          const decompressed = decompressUsingDict(dctx, chunk, dict)
+          freeDCtx(dctx)
           const record = JSON.parse(Buffer.from(decompressed).toString())
           yield record
         } else {

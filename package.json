@@ -1,6 +1,6 @@
 {
   "name": "atingester",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "ATProtocol Syncing Tools",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,7 +17,6 @@
   "author": "raitako_1",
   "license": "MIT",
   "dependencies": {
-    "@atproto/api": "^0.16.6",
     "@atproto/common": "^0.4.11",
     "@atproto/common-web": "^0.4.2",
     "@atproto/identity": "^0.4.8",
@@ -31,7 +30,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/node": "^18.19.123",
+    "@types/node": "^18.19.124",
     "@types/ws": "^8.18.1",
     "atlpm": "^3.1.2",
     "rimraf": "^6.0.1",

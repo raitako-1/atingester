@@ -21,6 +21,7 @@ export type TurbostreamOptions = Omit<FirehoseOptions,
   | 'excludeAccount'
   | 'excludeSync'
 > & {
+  filterDids?: string[]
   handleEvent: (evt: TurbostreamCommitEvt) => Awaited<void>
   onInfo: (info: string) => void
 }
@@ -67,7 +68,7 @@ export class Turbostream {
   private async parseEvt(evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt | null> {
     try {
       if (evt.message.kind === 'commit' && !this.opts.excludeCommit) {
-        return await formatCommitEvt(evt)
+        return await parseTurbostreamEventKindUnauthenticated(evt, this.opts.filterDids ?? [])
       } else {
         return null
       }
@@ -131,6 +132,16 @@ export class TurbostreamSubscription<T = unknown> {
       }
     }
   }
+}
+
+export const parseTurbostreamEventKindUnauthenticated = async (
+  evt: TurbostreamEventKind,
+  filterDids: string[],
+): Promise<TurbostreamCommitEvt | null> => {
+  if (filterDids.length === 0 || filterDids.includes(evt.did)) {
+    return formatCommitEvt(evt)
+  }
+  return null
 }
 
 const formatCommitEvt = async (evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt | null> => {
