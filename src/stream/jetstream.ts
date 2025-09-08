@@ -5,7 +5,7 @@ import { AtUri } from '@atproto/syntax'
 import {
   WebSocketKeepAlive,
 } from '@atproto/xrpc-server'
-import { createDCtx, decompressUsingDict, freeDCtx, init } from '@bokuweb/zstd-wasm'
+import { createDCtx, decompressUsingDict, freeDCtx } from '@bokuweb/zstd-wasm'
 import fs from 'fs'
 import { CID } from 'multiformats/cid'
 import path from 'path'
@@ -15,6 +15,8 @@ import {
   parseIdentity,
 } from './firehose'
 import type { JetstreamCommitEvt, JetstreamCommitMeta, JetstreamEvent, JetstreamEventKind, JetstreamEventKindCommit } from '../types'
+
+const dict = fs.readFileSync(path.resolve(__dirname, '../../dict/zstd_dictionary'))
 
 export type JetstreamOptions = Omit<FirehoseOptions, 'handleEvent' | 'unauthenticatedCommits' | 'excludeSync'> & {
   compress?: boolean
@@ -156,8 +158,6 @@ export class JetstreamSubscription<T = unknown> {
         return url
       },
     })
-    await init()
-    const dict = fs.readFileSync(path.resolve(__dirname, '../../dict/zstd_dictionary'))
     for await (const chunk of ws) {
       try {
         if (this.opts.compress) {

@@ -15,126 +15,156 @@ Forked from [@atproto/sync](https://github.com/bluesky-social/atproto/tree/main/
 
 It's basically the same as [here](https://github.com/bluesky-social/atproto/blob/main/packages/sync/README.md).
 
+Make sure to execute `await initIngester()` **exactly once** before calling Ingester, Jetstream, or similar classes!
+
 ### Ingester ( Firehose / Jetstream / Turbostream )
 
 ```ts
-import { Ingester } from 'atingester'
+import { Ingester, initIngester } from 'atingester'
 import { IdResolver } from '@atproto/identity'
 
-const ingester = new Ingester('Firehose', {
-  idResolver: new IdResolver(),
-  handleEvent: async (evt) => {
-    if (evt.event === 'create') {
-      console.log(evt.record.text)
-    }
-  },
-  onInfo: (info) => {
-    console.info(info)
-  },
-  onError: (err: Error) => {
-    console.error(err)
-  },
-  service: 'wss://bsky.network',
-  subscriptionReconnectDelay: 3000,
-  unauthenticatedCommits: true,
-  unauthenticatedHandles: true,
-  compress: true,
-  filterCollections: ['app.bsky.feed.post'],
-  filterDids: ['did:plc:abcde....'],
-  excludeIdentity: true,
-  excludeAccount: true,
-  excludeCommit: false,
-  excludeSync: true,
-})
-ingester.start()
+const run = async () => {
+  await initIngester()
 
-await ingester.destroy()
+  const ingester = new Ingester('Firehose', {
+    idResolver: new IdResolver(),
+    handleEvent: async (evt) => {
+      if (evt.event === 'create') {
+        console.log(evt.record.text)
+      }
+    },
+    onInfo: (info) => {
+      console.info(info)
+    },
+    onError: (err: Error) => {
+      console.error(err)
+    },
+    service: 'wss://bsky.network',
+    subscriptionReconnectDelay: 3000,
+    unauthenticatedCommits: true,
+    unauthenticatedHandles: true,
+    compress: true,
+    filterCollections: ['app.bsky.feed.post'],
+    filterDids: ['did:plc:abcde....'],
+    excludeIdentity: true,
+    excludeAccount: true,
+    excludeCommit: false,
+    excludeSync: true,
+  })
+
+  ingester.start()
+
+  await ingester.destroy()
+}
+
+run()
 ```
 
 ### Firehose
 
 ```ts
-import { Firehose } from 'atingester'
+import { Firehose, initIngester } from 'atingester'
 import { IdResolver } from '@atproto/identity'
 
-const firehose = new Firehose({
-  idResolver: new IdResolver(),
-  handleEvent: async (evt) => {
-    if (evt.event === 'create') {
-      console.log(evt.record.text)
-    }
-  },
-  onInfo: (info) => {
-    console.info(info)
-  },
-  onError: (err: Error) => {
-    console.error(err)
-  },
-  service: 'wss://bsky.network',
-  filterCollections: ['app.bsky.feed.post'],
-  filterDids: ['did:plc:abcde....'],
-  excludeIdentity: true,
-  excludeAccount: true,
-  excludeSync: true,
-})
-firehose.start()
+const run = async () => {
+  await initIngester()
 
-await firehose.destroy()
+  const firehose = new Firehose({
+    idResolver: new IdResolver(),
+    handleEvent: async (evt) => {
+      if (evt.event === 'create') {
+        console.log(evt.record.text)
+      }
+    },
+    onInfo: (info) => {
+      console.info(info)
+    },
+    onError: (err: Error) => {
+      console.error(err)
+    },
+    service: 'wss://bsky.network',
+    filterCollections: ['app.bsky.feed.post'],
+    filterDids: ['did:plc:abcde....'],
+    excludeIdentity: true,
+    excludeAccount: true,
+    excludeSync: true,
+  })
+
+  firehose.start()
+
+  await firehose.destroy()
+}
+
+run()
 ```
 
 ### Jetstream
 
 ```ts
-import { Jetstream } from 'atingester'
+import { Jetstream, initIngester } from 'atingester'
 import { IdResolver } from '@atproto/identity'
 
-const jetstream = new Jetstream({
-  idResolver: new IdResolver(),
-  handleEvent: async (evt) => {
-    if (evt.event === 'create') {
-      console.log(evt.record.text)
-    }
-  },
-  onInfo: (info) => {
-    console.info(info)
-  },
-  onError: (err: Error) => {
-    console.error(err)
-  },
-  service: 'wss://jetstream1.us-east.bsky.network',
-  compress: true,
-  filterCollections: ['app.bsky.feed.post'],
-  filterDids: ['did:plc:abcde....'],
-  excludeIdentity: true,
-  excludeAccount: true,
-})
-jetstream.start()
+const run = async () => {
+  await initIngester()
 
-await jetstream.destroy()
+  const jetstream = new Jetstream({
+    idResolver: new IdResolver(),
+    handleEvent: async (evt) => {
+      if (evt.event === 'create') {
+        console.log(evt.record.text)
+      }
+    },
+    onInfo: (info) => {
+      console.info(info)
+    },
+    onError: (err: Error) => {
+      console.error(err)
+    },
+    service: 'wss://jetstream1.us-east.bsky.network',
+    compress: true,
+    filterCollections: ['app.bsky.feed.post'],
+    filterDids: ['did:plc:abcde....'],
+    excludeIdentity: true,
+    excludeAccount: true,
+  })
+
+  jetstream.start()
+
+  await jetstream.destroy()
+}
+
+run()
 ```
 
 ### Turbostream
 
 ```ts
-import { Turbostream } from 'atingester'
+import { initIngester, Turbostream } from 'atingester'
 import { IdResolver } from '@atproto/identity'
 
-const turbostream = new Turbostream({
-  handleEvent: async (evt) => {
-    if (evt.event === 'create') {
-      console.log(evt.record.text)
-    }
-  },
-  onInfo: (info) => {
-    console.info(info)
-  },
-  onError: (err: Error) => {
-    console.error(err)
-  },
-  service: 'wss://api.graze.social',
-  filterDids: ['did:plc:abcde....'],
-})
-turbostream.start()
+const run = async () => {
+  await initIngester()
 
-await turbostream.destroy()
+  const turbostream = new Turbostream({
+    handleEvent: async (evt) => {
+      if (evt.event === 'create') {
+        console.log(evt.record.text)
+      }
+    },
+    onInfo: (info) => {
+      console.info(info)
+    },
+    onError: (err: Error) => {
+      console.error(err)
+    },
+    service: 'wss://api.graze.social',
+    filterDids: ['did:plc:abcde....'],
+  })
+
+  turbostream.start()
+
+  await turbostream.destroy()
+}
+
+run()
 ```

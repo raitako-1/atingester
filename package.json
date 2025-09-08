@@ -1,6 +1,6 @@
 {
   "name": "atingester",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "ATProtocol Syncing Tools",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,7 +9,14 @@
     "clean": "rimraf ./dist",
     "build": "tsc -p ./"
   },
-  "keywords": [],
+  "keywords": [
+    "atproto",
+    "sync",
+    "firehose",
+    "relay",
+    "jetstream",
+    "turbostream"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/raitako-1/atingester.git"
