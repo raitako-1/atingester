@@ -140,7 +140,6 @@ run()
 
 ```ts
 import { initIngester, Turbostream } from 'atingester'
-import { IdResolver } from '@atproto/identity'
 
 const run = async () => {
   await initIngester()
