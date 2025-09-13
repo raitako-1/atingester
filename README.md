@@ -11,6 +11,11 @@ Forked from [@atproto/sync](https://github.com/bluesky-social/atproto/tree/main/
 - **[Jetstream](https://github.com/jazware/jetstream)** is a streaming service that consumes Firehose and converts it into lightweight, friendly JSON.
 - **[Turbostream](https://www.graze.social/docs/graze-turbostream)** is a real-time, hydrated repeater service built on top of Jetstream.
 
+## Links
+- **[JetstreamProxy](https://github.com/tomo-x7/JetstreamProxy)** is a server that proxies Jetstream. Using this with atingester can further reduce network traffic.
+- **[feed-generator](https://github.com/raitako-1/feed-generator)** is an example of using atingester with cursor.
+- **[flow-measurement-bot](https://github.com/raitako-1/flow-measurement-bot)** is an example of using atingester.
+
 ## Usage
 
 It's basically the same as [here](https://github.com/bluesky-social/atproto/blob/main/packages/sync/README.md).
@@ -28,7 +33,7 @@ const run = async () => {
 
   const ingester = new Ingester('Firehose', {
     idResolver: new IdResolver(),
-    handleEvent: async (evt) => {
+    handleEvent: (evt) => {
       if (evt.event === 'create') {
         console.log(evt.record.text)
       }
@@ -39,10 +44,14 @@ const run = async () => {
     onError: (err: Error) => {
       console.error(err)
     },
+    /*
+    getCursor?: () => Awaited<number | undefined>
+    runner?: EventRunner // should only set getCursor *or* runner
+    */
     service: 'wss://bsky.network',
     subscriptionReconnectDelay: 3000,
-    unauthenticatedCommits: true,
-    unauthenticatedHandles: true,
+    unauthenticatedCommits: false,
+    unauthenticatedHandles: false,
     compress: true,
     filterCollections: ['app.bsky.feed.post'],
     filterDids: ['did:plc:abcde....'],
@@ -71,7 +80,7 @@ const run = async () => {
 
   const firehose = new Firehose({
     idResolver: new IdResolver(),
-    handleEvent: async (evt) => {
+    handleEvent: (evt) => {
       if (evt.event === 'create') {
         console.log(evt.record.text)
       }
@@ -109,7 +118,7 @@ const run = async () => {
 
   const jetstream = new Jetstream({
     idResolver: new IdResolver(),
-    handleEvent: async (evt) => {
+    handleEvent: (evt) => {
       if (evt.event === 'create') {
         console.log(evt.record.text)
       }
@@ -145,7 +154,7 @@ const run = async () => {
   await initIngester()
 
   const turbostream = new Turbostream({
-    handleEvent: async (evt) => {
+    handleEvent: (evt) => {
       if (evt.event === 'create') {
         console.log(evt.record.text)
       }

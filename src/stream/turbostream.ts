@@ -37,7 +37,6 @@ export class Turbostream {
     this.sub = new TurbostreamSubscription({
       ...opts,
       service: opts.service ?? 'wss://api.graze.social',
-      method: 'turbostream',
       signal: this.abortController.signal,
       validate: (value: unknown) => {
         try {
@@ -99,7 +98,6 @@ export class TurbostreamSubscription<T = unknown> {
   constructor(
     public opts: ClientOptions & {
       service: string
-      method: string
       maxReconnectSeconds?: number
       heartbeatIntervalMs?: number
       signal?: AbortSignal
@@ -118,7 +116,7 @@ export class TurbostreamSubscription<T = unknown> {
     const ws = new WebSocketKeepAlive({
       ...this.opts,
       getUrl: async () => {
-        const url = `${this.opts.service}/app/api/v1/turbostream/${this.opts.method}`
+        const url = `${this.opts.service}/app/api/v1/turbostream/turbostream`
         this.opts.onInfo(`Turbostream: ${url}`)
         return url
       },
@@ -139,12 +137,12 @@ export const parseTurbostreamEventKindUnauthenticated = async (
   filterDids: string[],
 ): Promise<TurbostreamCommitEvt | null> => {
   if (filterDids.length === 0 || filterDids.includes(evt.did)) {
-    return formatCommitEvt(evt)
+    return formatTurbostreamCommitEvt(evt)
   }
   return null
 }
 
-const formatCommitEvt = async (evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt | null> => {
+const formatTurbostreamCommitEvt = async (evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt | null> => {
   const meta: TurbostreamCommitMeta = {
     time_us: evt.message.time_us,
     time: new Date(evt.message.time_us/(10**3)).toISOString(),

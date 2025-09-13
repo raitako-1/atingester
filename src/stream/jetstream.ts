@@ -15,10 +15,15 @@ import {
   parseIdentity,
 } from './firehose'
 import type { JetstreamCommitEvt, JetstreamCommitMeta, JetstreamEvent, JetstreamEventKind, JetstreamEventKindCommit } from '../types'
+import { encodeQueryParams } from './util'
 
 const dict = fs.readFileSync(path.resolve(__dirname, '../../dict/zstd_dictionary'))
 
-export type JetstreamOptions = Omit<FirehoseOptions, 'handleEvent' | 'unauthenticatedCommits' | 'excludeSync'> & {
+export type JetstreamOptions = Omit<FirehoseOptions,
+  | 'handleEvent'
+  | 'unauthenticatedCommits'
+  | 'excludeSync'
+> & {
   compress?: boolean
   filterDids?: string[]
   handleEvent: (evt: JetstreamEvent) => Awaited<void>
@@ -39,14 +44,20 @@ export class Jetstream {
     this.sub = new JetstreamSubscription({
       ...opts,
       service: opts.service ?? 'wss://jetstream1.us-east.bsky.network',
-      method: 'subscribe',
       signal: this.abortController.signal,
       getParams: async () => {
         const getCursorFn = this.opts.runner?.getCursor ?? this.opts.getCursor
         const cursor = await getCursorFn?.()
+        const wantedCollections = this.opts.excludeCommit ? undefined : this.opts.filterCollections
+        const wantedDids = (this.opts.excludeIdentity && this.opts.excludeAccount && this.opts.excludeCommit) ? undefined : this.opts.filterDids
+        const onlyCommit = (this.opts.excludeIdentity && this.opts.excludeAccount && !this.opts.excludeCommit) ? true : undefined
         return {
-          wantedCollections: this.opts.filterCollections,
-          wantedDids: this.opts.filterDids,
+          wantedCollections,
+          wantedDids,
+          excludeIdentity: this.opts.excludeIdentity,
+          excludeAccount: this.opts.excludeAccount,
+          excludeCommit: this.opts.excludeCommit,
+          onlyCommit,
           cursor,
           compress: this.opts.compress,
         }
@@ -127,7 +138,6 @@ export class JetstreamSubscription<T = unknown> {
   constructor(
     public opts: ClientOptions & {
       service: string
-      method: string
       maxReconnectSeconds?: number
       heartbeatIntervalMs?: number
       signal?: AbortSignal
@@ -153,7 +163,7 @@ export class JetstreamSubscription<T = unknown> {
       getUrl: async () => {
         const params = (await this.opts.getParams?.()) ?? {}
         const query = encodeQueryParams(params)
-        const url = `${this.opts.service}/${this.opts.method}?${query}`
+        const url = `${this.opts.service}/subscribe?${query}`
         this.opts.onInfo(`Jetstream: ${url}`)
         return url
       },
@@ -171,49 +181,10 @@ export class JetstreamSubscription<T = unknown> {
           yield record
         }
       } catch (err) {
-        this.opts.onError(new JetstreamDecompressError(err))
+        this.opts.onError(new JetstreamConverterError(err))
       }
     }
   }
-}
-
-function encodeQueryParams(obj: Record<string, unknown>): string {
-  const params = new URLSearchParams()
-  Object.entries(obj).forEach(([key, value]) => {
-    const encoded = encodeQueryParam(value)
-    if (Array.isArray(encoded)) {
-      encoded.forEach((enc) => params.append(key, enc))
-    } else {
-      if (encoded) params.set(key, encoded)
-    }
-  })
-  return params.toString()
-}
-
-// Adapted from xrpc, but without any lex-specific knowledge
-function encodeQueryParam(value: unknown): string | string[] {
-  if (typeof value === 'string') {
-    return value
-  }
-  if (typeof value === 'number') {
-    return value.toString()
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false'
-  }
-  if (typeof value === 'undefined') {
-    return ''
-  }
-  if (typeof value === 'object') {
-    if (value instanceof Date) {
-      return value.toISOString()
-    } else if (Array.isArray(value)) {
-      return value.flatMap(encodeQueryParam)
-    } else if (!value) {
-      return ''
-    }
-  }
-  throw new Error(`Cannot encode ${typeof value}s into query params`)
 }
 
 export const parseJetstreamKindCommitUnauthenticated = async (
@@ -222,12 +193,12 @@ export const parseJetstreamKindCommitUnauthenticated = async (
   filterDids: string[],
 ): Promise<JetstreamCommitEvt | null> => {
   if ((filterCollections.length === 0 || filterCollections.includes(evt.commit.collection)) && (filterDids.length === 0 || filterDids.includes(evt.did))) {
-    return formatCommitEvt(evt)
+    return formatJetstreamCommitEvt(evt)
   }
   return null
 }
 
-const formatCommitEvt = async (evt: JetstreamEventKindCommit): Promise<JetstreamCommitEvt | null> => {
+const formatJetstreamCommitEvt = async (evt: JetstreamEventKindCommit): Promise<JetstreamCommitEvt | null> => {
   const meta: JetstreamCommitMeta = {
     time_us: evt.time_us,
     time: new Date(evt.time_us/(10**3)).toISOString(),
@@ -295,8 +266,8 @@ export class JetstreamHandlerError extends Error {
   }
 }
 
-export class JetstreamDecompressError extends Error {
+export class JetstreamConverterError extends Error {
   constructor(err: unknown) {
-    super('error in jetstream subscription', { cause: err })
+    super('error in jetstream event converter', { cause: err })
   }
 }

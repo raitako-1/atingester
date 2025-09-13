@@ -43,6 +43,7 @@ import {
   isIdentity,
   isSync,
 } from '../lexicon/types/com/atproto/sync/subscribeRepos'
+import { encodeQueryParams } from './util'
 
 export type FirehoseOptions = FirehoseOptionsBase & {
   filterDids?: string[]
@@ -63,14 +64,10 @@ export class Firehose {
     this.sub = new FirehoseSubscription({
       ...opts,
       service: opts.service ?? 'wss://bsky.network',
-      method: 'com.atproto.sync.subscribeRepos',
       signal: this.abortController.signal,
       getParams: async () => {
         const getCursorFn = this.opts.runner?.getCursor ?? this.opts.getCursor
-        if (!getCursorFn) {
-          return undefined
-        }
-        const cursor = await getCursorFn()
+        const cursor = await getCursorFn?.()
         return { cursor }
       },
       validate: (value: unknown) => {
@@ -166,7 +163,6 @@ export class FirehoseSubscription<T = unknown> {
   constructor(
     public opts: ClientOptions & {
       service: string
-      method: string
       maxReconnectSeconds?: number
       heartbeatIntervalMs?: number
       signal?: AbortSignal
@@ -190,7 +186,7 @@ export class FirehoseSubscription<T = unknown> {
       getUrl: async () => {
         const params = (await this.opts.getParams?.()) ?? {}
         const query = encodeQueryParams(params)
-        const url = `${this.opts.service}/xrpc/${this.opts.method}?${query}`
+        const url = `${this.opts.service}/xrpc/${ids.ComAtprotoSyncSubscribeRepos}?${query}`
         this.opts.onInfo(`Firehose: ${url}`)
         return url
       },
@@ -200,7 +196,7 @@ export class FirehoseSubscription<T = unknown> {
       const t = message.header.t
       const clone = message.body !== undefined ? { ...message.body } : undefined
       if (clone !== undefined && t !== undefined) {
-        clone['$type'] = t.startsWith('#') ? this.opts.method + t : t
+        clone['$type'] = t.startsWith('#') ? ids.ComAtprotoSyncSubscribeRepos + t : t
       }
       const result = this.opts.validate(clone)
       if (result !== undefined) {
@@ -218,46 +214,6 @@ const didAndSeqForEvt = (
     return { seq: evt.seq, did: evt.did }
   return undefined
 }
-
-function encodeQueryParams(obj: Record<string, unknown>): string {
-  const params = new URLSearchParams()
-  Object.entries(obj).forEach(([key, value]) => {
-    const encoded = encodeQueryParam(value)
-    if (Array.isArray(encoded)) {
-      encoded.forEach((enc) => params.append(key, enc))
-    } else {
-      params.set(key, encoded)
-    }
-  })
-  return params.toString()
-}
-
-// Adapted from xrpc, but without any lex-specific knowledge
-function encodeQueryParam(value: unknown): string | string[] {
-  if (typeof value === 'string') {
-    return value
-  }
-  if (typeof value === 'number') {
-    return value.toString()
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false'
-  }
-  if (typeof value === 'undefined') {
-    return ''
-  }
-  if (typeof value === 'object') {
-    if (value instanceof Date) {
-      return value.toISOString()
-    } else if (Array.isArray(value)) {
-      return value.flatMap(encodeQueryParam)
-    } else if (!value) {
-      return ''
-    }
-  }
-  throw new Error(`Cannot encode ${typeof value}s into query params`)
-}
-
 
 export const parseCommitAuthenticated = async (
   idResolver: IdResolver,
