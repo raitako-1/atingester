@@ -2,9 +2,7 @@ import { check, createDeferrable, type Deferrable, schema, wait } from '@atproto
 import { ipldToLex } from '@atproto/lexicon'
 import type { FirehoseOptions } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
-import {
-  WebSocketKeepAlive,
-} from '@atproto/xrpc-server'
+import { WebSocketKeepAlive } from '@atproto/ws-client'
 import { createDCtx, decompressUsingDict, freeDCtx } from '@bokuweb/zstd-wasm'
 import fs from 'fs'
 import { CID } from 'multiformats/cid'

@@ -1,6 +1,6 @@
 {
   "name": "atingester",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ATProtocol Syncing Tools",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -30,20 +30,21 @@
     "@atproto/common-web": "^0.4.3",
     "@atproto/identity": "^0.4.9",
     "@atproto/lexicon": "^0.4.14",
-    "@atproto/repo": "^0.8.9",
-    "@atproto/sync": "^0.1.34",
+    "@atproto/repo": "^0.8.10",
+    "@atproto/sync": "^0.1.37",
     "@atproto/syntax": "^0.4.1",
-    "@atproto/xrpc-server": "^0.9.5",
+    "@atproto/ws-client": "^0.0.2",
+    "@atproto/xrpc-server": "^0.9.6",
     "@bokuweb/zstd-wasm": "^0.0.27",
     "multiformats": "^9.9.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/node": "^18.19.124",
+    "@types/node": "^18.19.130",
     "@types/ws": "^8.18.1",
     "atlpm": "^3.1.2",
-    "rimraf": "^6.0.1",
-    "typescript": "^5.9.2"
+    "rimraf": "^6.1.2",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">= 18.7.0"

@@ -24,9 +24,9 @@ import type {
   SyncEvt,
 } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
+import { WebSocketKeepAlive } from '@atproto/ws-client'
 import {
   ensureChunkIsMessage,
-  WebSocketKeepAlive,
 } from '@atproto/xrpc-server'
 import { CID } from 'multiformats/cid'
 import { type ClientOptions } from 'ws'
