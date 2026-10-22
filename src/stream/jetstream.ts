@@ -3,22 +3,28 @@ import { jsonToLex, parseCid } from '@atproto/lex'
 import type { FirehoseOptions } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
 import { type HeadersInit, websocket } from '@atproto/ws-client'
-import { createDCtx, decompressUsingDict, freeDCtx } from '@bokuweb/zstd-wasm'
-import fs from 'fs'
-import path from 'path'
+import { type Kind } from '@bsky/jetstream'
 import {
   parseAccount,
   parseIdentity,
+  parseSync,
 } from './firehose.js'
-import type { JetstreamCommitEvt, JetstreamCommitMeta, JetstreamEvent, JetstreamEventKind, JetstreamEventKindCommit } from '../types.js'
-import { encodeQueryParams } from './util.js'
-
-const dict = fs.readFileSync(path.resolve(import.meta.dirname, '../../dict/zstd_dictionary'))
+import { network } from '../lexicons/index.js'
+import type {
+  JetstreamCommitEvt,
+  JetstreamCommitMeta,
+  JetstreamEvent,
+  JetstreamEventKind,
+  JetstreamEventKindMessageCommit,
+  JetstreamEventKindMessageIdentity,
+  JetstreamEventKindMessageAccount,
+  JetstreamEventKindMessageSync,
+} from '../types.js'
+//import { encodeQueryParams } from './util.js'
 
 export type JetstreamOptions = Omit<FirehoseOptions,
   | 'handleEvent'
   | 'unauthenticatedCommits'
-  | 'excludeSync'
 > & {
   compress?: boolean
   filterDids?: string[]
@@ -69,16 +75,25 @@ export class Jetstream {
         return false
       }
     }
+    const kinds: Kind[] = []
+    if (!opts.excludeAccount) kinds.push('account')
+    if (!opts.excludeIdentity) kinds.push('identity')
+    if (!opts.excludeCommit) kinds.push('commit')
+    if (!opts.excludeSync) kinds.push('sync')
     // Listed explicitly rather than spread: the old `ClientOptions &` shape let
     // arbitrary `ws` options through, which Subscription no longer accepts — a
     // spread would silently drop them.
     this.sub = new JetstreamSubscription({
-      service: opts.service ?? 'wss://jetstream1.us-west.bsky.network',
-      method: 'subscribe',
+      service: opts.service ?? 'wss://jetstream.us-west.bsky.network',
+      method: network.bsky.jetstream.subscribeEvents.$nsid,
       maxReconnectSeconds: opts.maxReconnectSeconds,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       headers: opts.headers,
       signal: this.abortController.signal,
+      compress: opts.compress,
+      filterCollections: opts.filterCollections,
+      filterDids: opts.filterDids,
+      kinds,
       onInfo: opts.onInfo,
       getParams: async () => {
         const getCursorFn = this.opts.runner?.getCursor ?? this.opts.getCursor
@@ -111,12 +126,20 @@ export class Jetstream {
   async start(): Promise<void> {
     try {
       for await (const evt of this.sub) {
+        if (evt.$type === 'error') throw new JetstreamSubscriptionError(evt.error)
+        if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#info`) throw new JetstreamSubscriptionError(evt.payload.info.name + ': ' + evt.payload.info.message)
         if (this.opts.runner) {
-          this.opts.runner.trackEvent(evt.did, evt.time_us, async () => {
-            await this.processEvt(evt)
+          this.opts.runner.trackEvent(evt.payload.did, evt.payload.seq, async () => {
+            await this.processEvt(evt as {
+              $type: "message"
+              payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
+            })
           })
         } else {
-          await this.processEvt(evt)
+          await this.processEvt(evt as {
+            $type: "message"
+            payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
+          })
         }
       }
     } catch (err) {
@@ -130,27 +153,38 @@ export class Jetstream {
     }
   }
 
-  private async parseEvt(evt: JetstreamEventKind): Promise<JetstreamEvent[]> {
+  private async parseEvt(evt: {
+    $type: "message"
+    payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
+  }): Promise<JetstreamEvent[]> {
     try {
-      if (evt.kind === 'commit') {
+      if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#commit`) {
         if (this.opts.excludeCommit) return []
 
-        return await parseJetstreamKindCommitUnauthenticated(evt, this.matchCollection, this.matchDid)
-      } else if (evt.kind === 'account') {
+        return await parseJetstreamKindCommitUnauthenticated(evt as {
+          $type: "message"
+          payload: JetstreamEventKindMessageCommit
+        }, this.matchCollection, this.matchDid)
+      } else if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#account`) {
         if (this.opts.excludeAccount) return []
 
-        const parsed = parseAccount(evt.account, this.matchDid)
-        return parsed ? [{...parsed, time_us: evt.time_us, cursor: evt.cursor}] : []
-      } else if (evt.kind === 'identity') {
+        const parsed = parseAccount(evt.payload.account, this.matchDid)
+        return parsed ? [{...parsed, cursor: evt.payload.seq, timeUs: evt.payload.time, witnessedAt: evt.payload.witnessedAt}] : []
+      } else if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#identity`) {
         if (this.opts.excludeIdentity) return []
 
         const parsed = await parseIdentity(
           this.opts.idResolver,
-          evt.identity,
+          evt.payload.identity,
           this.matchDid,
           this.opts.unauthenticatedHandles,
         )
-        return parsed ? [{...parsed, time_us: evt.time_us, cursor: evt.cursor}] : []
+        return parsed ? [{...parsed, cursor: evt.payload.seq, timeUs: evt.payload.time, witnessedAt: evt.payload.witnessedAt}] : []
+      } else if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#sync`) {
+        if (this.opts.excludeSync) return []
+
+        const parsed = await parseSync(evt.payload.sync, this.matchDid)
+        return parsed ? [{...parsed, cursor: evt.payload.seq, timeUs: evt.payload.time, witnessedAt: evt.payload.witnessedAt}] : []
       } else {
         return []
       }
@@ -160,7 +194,10 @@ export class Jetstream {
     }
   }
 
-  private async processEvt(evt: JetstreamEventKind) {
+  private async processEvt(evt: {
+    $type: "message"
+    payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
+  }) {
     const parsed = await this.parseEvt(evt)
     for (const write of parsed) {
       try {
@@ -188,6 +225,9 @@ class JetstreamSubscription<T = unknown> {
       headers?: HeadersInit
       signal?: AbortSignal
       compress?: boolean
+      filterCollections?: string[]
+      filterDids?: string[]
+      kinds?: Kind[]
       onInfo: (info: string) => void
       validate: (obj: unknown) => T | undefined
       onReconnectError?: (
@@ -203,17 +243,36 @@ class JetstreamSubscription<T = unknown> {
   ) {}
 
   async *[Symbol.asyncIterator](): AsyncGenerator<T> {
+    // lastSeq is the highest DELIVERED seq = reconnect cursor + dedup floor.
+    // undefined means nothing delivered yet (seq 0 passes). A v2 timestamp
+    // cursor stays wire-only: leave lastSeq unset so the first delivered event
+    // establishes a real floor, while getUrl keeps sending the timestamp.
+    /*const isTimestampDomainFloor =
+      this.opts.dedupFloor !== undefined &&
+      this.opts.dedupFloor >= V2_CURSOR_SEQ_MAX_THRESHOLD
+    let lastSeq: number | undefined = isTimestampDomainFloor
+      ? undefined
+      : this.opts.dedupFloor*/
     const ws = websocket(
-      async () => {
-        const params = (await this.opts.getParams?.()) ?? {}
-        const query = encodeQueryParams(params)
-        const url = `${this.opts.service}/${this.opts.method}?${query}`
-        this.opts.onInfo(`Jetstream: ${url}`)
+      (): string => {
+        const u = new URL(`/xrpc/${this.opts.method}`, this.opts.service)
+        // Resume from highest-delivered once anything has been delivered; otherwise
+        // fall back to the initial wire cursor (which may be 0 = replay from start).
+        //const wire = lastSeq ?? this.opts.cursor
+        //if (wire !== undefined) u.searchParams.set('cursor', String(wire))
+        // The param names are version-gated and must not cross: v2 answers the v1
+        // names with a 400 rather than ignoring them.
+        for (const c of this.opts.filterCollections ?? [])
+          u.searchParams.append('collections', c)
+        for (const d of this.opts.filterDids ?? []) u.searchParams.append('dids', d)
+        for (const k of this.opts.kinds ?? []) u.searchParams.append('kinds', k)
+        const url = u.toString()
+        this.opts.onInfo(`Jetstream v2: ${url}`)
         return url
       },
       {
         // Subscription frames are CBOR.
-        dataMode: this.opts.compress ? 'binary' : 'text',
+        dataMode: 'text',
         headers: this.opts.headers,
         maxReconnectSeconds: this.opts.maxReconnectSeconds,
         // `{}` means "on at the default interval". Omitting the option entirely
@@ -233,61 +292,54 @@ class JetstreamSubscription<T = unknown> {
       },
     )
     for await (const chunk of ws) {
-      if (this.opts.compress) {
-        const dctx = createDCtx()
-        const decompressed = decompressUsingDict(dctx, chunk as Uint8Array<ArrayBuffer>, dict)
-        freeDCtx(dctx)
-        const record = JSON.parse(Buffer.from(decompressed).toString())
-        yield record
-      } else {
-        const record = JSON.parse(Buffer.from(chunk).toString())
-        yield record
-      }
+      const record = JSON.parse(Buffer.from(chunk).toString())
+      yield record
     }
   }
 }
 
 const parseJetstreamKindCommitUnauthenticated = async (
-  evt: JetstreamEventKindCommit,
+  evt: {$type: 'message', payload: JetstreamEventKindMessageCommit},
   matchCollection: ((col: string) => boolean) | null,
   matchDid: ((did: string) => boolean) | null,
 ): Promise<JetstreamCommitEvt[]> => {
   if (!matchCollection) matchCollection = () => true
   if (!matchDid) matchDid = () => true
-  if (matchCollection(evt.commit.collection) && matchDid(evt.did)) {
+  if (matchCollection(evt.payload.collection) && matchDid(evt.payload.did)) {
     return await formatJetstreamCommitEvts(evt)
   }
   return []
 }
 
-const formatJetstreamCommitEvts = async (evt: JetstreamEventKindCommit): Promise<JetstreamCommitEvt[]> => {
+const formatJetstreamCommitEvts = async (evt: {$type: 'message', payload: JetstreamEventKindMessageCommit}): Promise<JetstreamCommitEvt[]> => {
   const meta: JetstreamCommitMeta = {
-    time_us: evt.time_us,
-    cursor: evt.cursor,
-    seq: evt.time_us,
-    time: new Date(evt.time_us/(10**3)).toISOString(),
-    rev: evt.commit.rev,
-    uri: AtUri.make(evt.did, `${evt.commit.collection}/${evt.commit.rkey}`),
-    did: evt.did,
-    collection: evt.commit.collection,
-    rkey: evt.commit.rkey,
+    cursor: evt.payload.seq,
+    timeUs: evt.payload.time,
+    witnessedAt: evt.payload.witnessedAt,
+    seq: evt.payload.seq,
+    time: evt.payload.time,
+    rev: evt.payload.rev,
+    uri: AtUri.make(evt.payload.did, `${evt.payload.collection}/${evt.payload.rkey}`),
+    did: evt.payload.did,
+    collection: evt.payload.collection,
+    rkey: evt.payload.rkey,
   }
 
-  if (evt.commit.operation === 'create' || evt.commit.operation === 'update') {
-    const cid = parseCid(evt.commit.cid)
-    const record = jsonToLex(evt.commit.record)
+  if (evt.payload.operation === 'create' || evt.payload.operation === 'update') {
+    const cid = parseCid(evt.payload.cid)
+    const record = jsonToLex(evt.payload.record)
     if (!check.is(record, schema.map)) {
       throw new Error('lexicon records be a json object')
     }
     return [{
       ...meta,
-      event: evt.commit.operation,
+      event: evt.payload.operation,
       cid,
       record,
     }]
   }
 
-  if (evt.commit.operation === 'delete') {
+  if (evt.payload.operation === 'delete') {
     return [{
       ...meta,
       event: 'delete',
@@ -296,6 +348,13 @@ const formatJetstreamCommitEvts = async (evt: JetstreamEventKindCommit): Promise
 
   return []
 }
+
+/*function httpScheme(host: string): string {
+  const u = new URL(host)
+  if (u.protocol === 'ws:') u.protocol = 'http:'
+  else if (u.protocol === 'wss:') u.protocol = 'https:'
+  return u.origin
+}*/
 
 export class JetstreamValidationError extends Error {
   constructor(

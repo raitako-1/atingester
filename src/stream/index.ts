@@ -5,5 +5,6 @@
  */
 
 export * from './firehose.js'
+export * from './jetstream-v1.js'
 export * from './jetstream.js'
 export * from './turbostream.js'

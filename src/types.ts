@@ -1,18 +1,54 @@
-import type { Cid, CidString, DidString, LexMap } from '@atproto/lex'
-import type { AccountEvt, CommitMeta, Event, IdentityEvt } from '@atproto/sync'
+import type { Cid, CidString, DatetimeString, DidString, LexMap, NsidString, RecordKeyString, TidString } from '@atproto/lex'
+import type { AccountEvt, CommitMeta, Event, IdentityEvt, SyncEvt } from '@atproto/sync'
 import type { RawRecordJson } from '@bsky/jetstream'
-import { app, com } from './lexicons/index.js'
+import { app, com, network } from './lexicons/index.js'
 
-export type IngesterEvent = Event | JetstreamEvent | TurbostreamCommitEvt
+export type IngesterEvent = Event | JetstreamV1Event | JetstreamEvent | TurbostreamCommitEvt
 
 
-export type JetstreamEvent = JetstreamCommitEvt | JetstreamIdentityEvt | JetstreamAccountEvt
+export type JetstreamV1Event = JetstreamV1CommitEvt | JetstreamV1IdentityEvt | JetstreamV1AccountEvt
+
+export type JetstreamV1CommitEvt = JetstreamV1Create | JetstreamV1Update | JetstreamV1Delete
+
+export type JetstreamV1CommitMeta = Omit<CommitMeta, 'commit' | 'blocks'> & {
+  time_us: number
+  cursor?: number
+}
+
+export type JetstreamV1Create = JetstreamV1CommitMeta & {
+  event: 'create'
+  record: LexMap
+  cid: Cid
+}
+
+export type JetstreamV1Update = JetstreamV1CommitMeta & {
+  event: 'update'
+  record: LexMap
+  cid: Cid
+}
+
+export type JetstreamV1Delete = JetstreamV1CommitMeta & {
+  event: 'delete'
+}
+
+export type JetstreamV1IdentityEvt = IdentityEvt & {
+  time_us: number
+  cursor?: number
+}
+
+export type JetstreamV1AccountEvt = AccountEvt & {
+  time_us: number
+  cursor?: number
+}
+
+export type JetstreamEvent = JetstreamCommitEvt | JetstreamIdentityEvt | JetstreamAccountEvt | JetstreamSyncEvt
 
 export type JetstreamCommitEvt = JetstreamCreate | JetstreamUpdate | JetstreamDelete
 
 export type JetstreamCommitMeta = Omit<CommitMeta, 'commit' | 'blocks'> & {
-  time_us: number
-  cursor?: number
+  cursor: number
+  timeUs: DatetimeString
+  witnessedAt: DatetimeString
 }
 
 export type JetstreamCreate = JetstreamCommitMeta & {
@@ -32,13 +68,21 @@ export type JetstreamDelete = JetstreamCommitMeta & {
 }
 
 export type JetstreamIdentityEvt = IdentityEvt & {
-  time_us: number
-  cursor?: number
+  cursor: number
+  timeUs: DatetimeString
+  witnessedAt: DatetimeString
 }
 
 export type JetstreamAccountEvt = AccountEvt & {
-  time_us: number
-  cursor?: number
+  cursor: number
+  timeUs: DatetimeString
+  witnessedAt: DatetimeString
+}
+
+export type JetstreamSyncEvt = SyncEvt & {
+  cursor: number
+  timeUs: DatetimeString
+  witnessedAt: DatetimeString
 }
 
 
@@ -67,9 +111,9 @@ export type TurbostreamDelete = TurbostreamCommitMeta & {
 }
 
 
-export type JetstreamEventKind = JetstreamEventKindAccount | JetstreamEventKindCommit | JetstreamEventKindIdentity
+export type JetstreamV1EventKind = JetstreamV1EventKindAccount | JetstreamV1EventKindCommit | JetstreamV1EventKindIdentity
 
-export type JetstreamEventKindAccount = {
+export type JetstreamV1EventKindAccount = {
   did: DidString
   time_us: number
   cursor?: number
@@ -77,15 +121,15 @@ export type JetstreamEventKindAccount = {
   account: com.atproto.sync.subscribeRepos.Account
 }
 
-export type JetstreamEventKindCommit = {
+export type JetstreamV1EventKindCommit = {
   did: DidString
   time_us: number
   cursor?: number
   kind: 'commit'
-  commit: JetstreamEventKindCommitOperationCreate | JetstreamEventKindCommitOperationUpdate | JetstreamEventKindCommitOperationDelete
+  commit: JetstreamV1EventKindCommitOperationCreate | JetstreamV1EventKindCommitOperationUpdate | JetstreamV1EventKindCommitOperationDelete
 }
 
-export type JetstreamEventKindCommitOperationCreate = {
+export type JetstreamV1EventKindCommitOperationCreate = {
   rev: string
   operation: 'create'
   collection: string
@@ -94,7 +138,7 @@ export type JetstreamEventKindCommitOperationCreate = {
   cid: string
 }
 
-export type JetstreamEventKindCommitOperationUpdate = {
+export type JetstreamV1EventKindCommitOperationUpdate = {
   rev: string
   operation: 'update'
   collection: string
@@ -103,14 +147,14 @@ export type JetstreamEventKindCommitOperationUpdate = {
   cid: string
 }
 
-export type JetstreamEventKindCommitOperationDelete = {
+export type JetstreamV1EventKindCommitOperationDelete = {
   rev: string
   operation: 'delete'
   collection: string
   rkey: string
 }
 
-export type JetstreamEventKindIdentity = {
+export type JetstreamV1EventKindIdentity = {
   did: DidString
   time_us: number
   cursor?: number
@@ -119,11 +163,77 @@ export type JetstreamEventKindIdentity = {
 }
 
 
+export type JetstreamEventKind = JetstreamEventKindError | JetstreamEventKindMessage
+
+export type JetstreamEventKindError = {
+  $type: 'error'
+  error: any
+  message: any
+}
+
+export type JetstreamEventKindMessage = {
+  $type: 'message'
+  payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync | JetstreamEventKindMessageInfo
+}
+
+export type JetstreamEventKindMessagePayloadMeta = {
+  seq: number
+  did: DidString
+  time: DatetimeString
+  witnessedAt: DatetimeString
+}
+
+export type JetstreamEventKindMessageCommit = JetstreamEventKindMessageCommitCreate | JetstreamEventKindMessageCommitUpdate | JetstreamEventKindMessageCommitDelete
+
+export type JetstreamEventKindMessageCommitMeta = JetstreamEventKindMessagePayloadMeta & {
+  $type: `${network.bsky.jetstream.subscribeEvents.$nsid}#commit`
+  rev: TidString
+  collection: NsidString
+  rkey: RecordKeyString
+}
+
+export type JetstreamEventKindMessageCommitCreate = JetstreamEventKindMessageCommitMeta & {
+  operation: 'create'
+  record: RawRecordJson
+  cid: CidString
+}
+
+export type JetstreamEventKindMessageCommitUpdate = JetstreamEventKindMessageCommitMeta & {
+  operation: 'update'
+  record: RawRecordJson
+  cid: CidString
+}
+
+export type JetstreamEventKindMessageCommitDelete = JetstreamEventKindMessageCommitMeta & {
+  operation: 'delete'
+}
+
+export type JetstreamEventKindMessageIdentity = JetstreamEventKindMessagePayloadMeta & {
+  $type: `${network.bsky.jetstream.subscribeEvents.$nsid}#identity`
+  identity: com.atproto.sync.subscribeRepos.Identity
+}
+
+export type JetstreamEventKindMessageAccount = JetstreamEventKindMessagePayloadMeta & {
+  $type: `${network.bsky.jetstream.subscribeEvents.$nsid}#account`
+  account: com.atproto.sync.subscribeRepos.Account
+}
+
+export type JetstreamEventKindMessageSync = JetstreamEventKindMessagePayloadMeta & {
+  $type: `${network.bsky.jetstream.subscribeEvents.$nsid}#sync`
+  sync: com.atproto.sync.subscribeRepos.Sync
+}
+
+export type JetstreamEventKindMessageInfo = {
+  $type: `${network.bsky.jetstream.subscribeEvents.$nsid}#info`
+  info: com.atproto.sync.subscribeRepos.Info
+}
+
+
 export type TurbostreamEventKind = {
   at_uri: string
   did: DidString
   time_us: number | null
-  message: JetstreamEventKindCommit
+  message: JetstreamV1EventKindCommit
   hydrated_metadata: TurbostreamEventKindHydratedMetadata
 }
 

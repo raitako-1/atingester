@@ -3,16 +3,19 @@ This library for syncing data from the bluesky network.
 
 Forked from [@atproto/sync](https://github.com/bluesky-social/atproto/tree/main/packages/sync)
 
+I used [this code](https://gist.github.com/aendra-rininsland/32bc4fa0a9207b2cec8a9da331cab734) as a reference.
+
 [![NPM](https://img.shields.io/npm/v/atingester)](https://www.npmjs.com/package/atingester)
 [![Github CI Status](https://github.com/raitako-1/atingester/actions/workflows/build.yml/badge.svg)](https://github.com/raitako-1/atingester/actions/workflows/build.yml)
 
 ### This tool can subscribes...
-- **[Firehose](https://docs.bsky.app/docs/advanced-guides/firehose)** is an authenticated stream of events used to efficiently sync user updates (posts, likes, follows, handle changes, etc).
-- **[Jetstream](https://github.com/jazware/jetstream)** is a streaming service that consumes Firehose and converts it into lightweight, friendly JSON.
+- **[Firehose](https://bsky.network/docs/consuming-the-firehose)** is an authenticated stream of events used to efficiently sync user updates (posts, likes, follows, handle changes, etc).
+- **[Jetstream](https://bsky.network/docs/jetstream)** is a streaming service that consumes Firehose and converts it into lightweight, friendly JSON.
 - **[Turbostream](https://www.graze.social/docs/graze-turbostream)** is a real-time, hydrated repeater service built on top of Jetstream.
+### ...in same functions.
 
 ## Links
-- **[JetstreamProxy](https://github.com/tomo-x7/JetstreamProxy)** is a server that proxies Jetstream. Using this with atingester can further reduce network traffic.
+- **[JetstreamProxy](https://github.com/tomo-x7/JetstreamProxy)** is a server that proxies Jetstream. Using this with atingester can further reduce network traffic. **!!! JetstreamProxy currently only supports legacy-v1. !!!**
 - **[feed-generator](https://github.com/raitako-1/feed-generator)** is an example of using atingester with cursor.
 - **[flow-measurement-bot](https://github.com/raitako-1/flow-measurement-bot)** is an example of using atingester.
 
@@ -22,7 +25,9 @@ It's basically the same as [here](https://github.com/bluesky-social/atproto/blob
 
 Make sure to execute `await initIngester()` **exactly once** before calling Ingester, Jetstream, or similar classes!
 
-### Ingester ( Firehose / Jetstream / Turbostream )
+**!!! You can set `compress: true` only in the legacy-v1 environment. !!!**
+
+### Ingester ( Firehose / Jetstream legacy-v1, v1, v2 / Turbostream )
 
 ```ts
 import { Ingester, initIngester } from 'atingester'
@@ -52,7 +57,7 @@ const run = async () => {
     subscriptionReconnectDelay: 3000,
     unauthenticatedCommits: false,
     unauthenticatedHandles: false,
-    compress: true,
+    compress: true, // this set only in the legacy-v1 environment
     filterCollections: ['app.bsky.feed.post'],
     filterDids: ['did:plc:abcde....'],
     excludeIdentity: true,
@@ -107,8 +112,50 @@ const run = async () => {
 run()
 ```
 
-### Jetstream
+### Jetstream legacy-v1, v1
 
+```ts
+import { JetstreamV1, initIngester } from 'atingester'
+import { IdResolver } from '@atproto/identity'
+
+const run = async () => {
+  await initIngester()
+
+  const jetstreamV1 = new JetstreamV1({
+    idResolver: new IdResolver(),
+    handleEvent: (evt) => {
+      if (evt.event === 'create') {
+        console.log(evt.record.text)
+      }
+    },
+    onInfo: (info) => {
+      console.info(info)
+    },
+    onError: (err: Error) => {
+      console.error(err)
+    },
+    service: 'wss://jetstream1.us-west.bsky.network',
+    compress: true, // this set only in the legacy-v1 environment
+    filterCollections: ['app.bsky.feed.post'],
+    filterDids: ['did:plc:abcde....'],
+    excludeIdentity: true,
+    excludeAccount: true,
+  })
+
+  jetstreamV1.start()
+
+  await jetstreamV1.destroy()
+}
+
+run()
+```
+
+### Jetstream v2
+**!!! At this stage, only the Live Tail feature has been implemented. We expect to roll out the other new features in stages. !!!**
+
+Please obtain your `apiKey` [here](https://bsky.network/account).
+
+With a single subscription, you can register up to 100 collections and 10,000 DIDs. If you exceed these limits, please create multiple Ingesters and combine them.
 ```ts
 import { Jetstream, initIngester } from 'atingester'
 import { IdResolver } from '@atproto/identity'
@@ -129,7 +176,7 @@ const run = async () => {
     onError: (err: Error) => {
       console.error(err)
     },
-    service: 'wss://jetstream1.us-east.bsky.network',
+    service: 'wss://jetstream.us-west.bsky.network',
     compress: true,
     filterCollections: ['app.bsky.feed.post'],
     filterDids: ['did:plc:abcde....'],

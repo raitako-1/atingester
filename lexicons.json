@@ -1,6 +1,10 @@
 {
   "version": 2,
-  "lexicons": ["app.bsky.actor.defs", "com.atproto.sync.subscribeRepos"],
+  "lexicons": [
+    "app.bsky.actor.defs",
+    "com.atproto.sync.subscribeRepos",
+    "network.bsky.jetstream.subscribeEvents"
+  ],
   "resolutions": {
     "app.bsky.actor.defs": {
       "uri": "at://did:plc:4v4y5r3lwsbtmsxhile2ljac/com.atproto.lexicon.schema/app.bsky.actor.defs",
@@ -77,6 +81,10 @@
     "com.atproto.sync.subscribeRepos": {
       "uri": "at://did:plc:6msi3pj7krzih5qxqtryxlzw/com.atproto.lexicon.schema/com.atproto.sync.subscribeRepos",
       "cid": "bafyreid5fdkjulxpnbfqwi4hjehx7ibzzj2h5ln7nachurdzqcpihytbuu"
+    },
+    "network.bsky.jetstream.subscribeEvents": {
+      "uri": "at://did:plc:4v4y5r3lwsbtmsxhile2ljac/com.atproto.lexicon.schema/network.bsky.jetstream.subscribeEvents",
+      "cid": "bafyreiblz3imqzdlvhuqc7s2iso7qwdcowbnis6ku2euw7vrgi37373nge"
     }
   }
 }
