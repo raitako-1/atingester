@@ -1,11 +1,9 @@
 import { check, createDeferrable, type Deferrable, schema, wait } from '@atproto/common'
-import { ipldToLex } from '@atproto/lexicon'
+import { jsonToLex, parseCid } from '@atproto/lex'
 import type { FirehoseOptions } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
-import { WebSocketKeepAlive } from '@atproto/ws-client'
-import { CID } from 'multiformats/cid'
-import { type ClientOptions } from 'ws'
-import type { TurbostreamCommitEvt, TurbostreamCommitMeta, TurbostreamEventKind } from '../types'
+import { type HeadersInit, websocket } from '@atproto/ws-client'
+import type { TurbostreamCommitEvt, TurbostreamCommitMeta, TurbostreamEventKind } from '../types.js'
 
 export type TurbostreamOptions = Omit<FirehoseOptions,
   | 'idResolver'
@@ -17,10 +15,11 @@ export type TurbostreamOptions = Omit<FirehoseOptions,
   | 'filterCollections'
   | 'excludeIdentity'
   | 'excludeAccount'
+  | 'excludeCommit'
   | 'excludeSync'
 > & {
   filterDids?: string[]
-  handleEvent: (evt: TurbostreamCommitEvt) => Awaited<void>
+  handleEvent: (evt: TurbostreamCommitEvt) => void | Promise<void>
   onInfo: (info: string) => void
 }
 
@@ -28,14 +27,33 @@ export class Turbostream {
   private sub: TurbostreamSubscription<TurbostreamEventKind>
   private abortController: AbortController
   private destoryDefer: Deferrable
+  private matchDid: ((did: string) => boolean) | null = null
 
   constructor(public opts: TurbostreamOptions) {
     this.destoryDefer = createDeferrable()
     this.abortController = new AbortController()
+    if (opts.filterDids) {
+      const exact = new Set<string>()
+
+      for (const pattern of opts.filterDids) {
+        exact.add(pattern)
+      }
+      this.matchDid = (did: string): boolean => {
+        if (exact.has(did)) return true
+        return false
+      }
+    }
+    // Listed explicitly rather than spread: the old `ClientOptions &` shape let
+    // arbitrary `ws` options through, which Subscription no longer accepts — a
+    // spread would silently drop them.
     this.sub = new TurbostreamSubscription({
-      ...opts,
       service: opts.service ?? 'wss://api.graze.social',
+      method: 'app/api/v1/turbostream/turbostream',
+      maxReconnectSeconds: opts.maxReconnectSeconds,
+      heartbeatIntervalMs: opts.heartbeatIntervalMs,
+      headers: opts.headers,
       signal: this.abortController.signal,
+      onInfo: opts.onInfo,
       validate: (value: unknown) => {
         try {
           return value as TurbostreamEventKind // TODO validate??
@@ -52,7 +70,7 @@ export class Turbostream {
         await this.processEvt(evt)
       }
     } catch (err) {
-      if (err && err['name'] === 'AbortError') {
+      if ((err as any)?.name === 'AbortError') {
         this.destoryDefer.resolve()
         return
       }
@@ -62,26 +80,26 @@ export class Turbostream {
     }
   }
 
-  private async parseEvt(evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt | null> {
+  private async parseEvt(evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt[]> {
     try {
-      if (evt.message.kind === 'commit' && !this.opts.excludeCommit) {
-        return await parseTurbostreamEventKindUnauthenticated(evt, this.opts.filterDids ?? [])
+      if (evt.message.kind === 'commit') {
+        return await parseTurbostreamEventKindUnauthenticated(evt, this.matchDid)
       } else {
-        return null
+        return []
       }
     } catch (err) {
       this.opts.onError(new TurbostreamParseError(err, evt))
-      return null
+      return []
     }
   }
 
   private async processEvt(evt: TurbostreamEventKind) {
     const parsed = await this.parseEvt(evt)
-    if (parsed) {
+    for (const write of parsed) {
       try {
-        await this.opts.handleEvent(parsed)
+        await this.opts.handleEvent(write)
       } catch (err) {
-        this.opts.onError(new TurbostreamHandlerError(err, parsed))
+        this.opts.onError(new TurbostreamHandlerError(err, write))
       }
     }
   }
@@ -92,15 +110,17 @@ export class Turbostream {
   }
 }
 
-export class TurbostreamSubscription<T = unknown> {
+class TurbostreamSubscription<T = unknown> {
   constructor(
-    public opts: ClientOptions & {
+    public opts: {
       service: string
+      method: string
       maxReconnectSeconds?: number
       heartbeatIntervalMs?: number
+      /** Applied to the connection's upgrade request (Node.js only). */
+      headers?: HeadersInit
       signal?: AbortSignal
       onInfo: (info: string) => void
-      onError: (err: Error) => void
       validate: (obj: unknown) => T | undefined
       onReconnectError?: (
         error: unknown,
@@ -111,38 +131,55 @@ export class TurbostreamSubscription<T = unknown> {
   ) {}
 
   async *[Symbol.asyncIterator](): AsyncGenerator<T> {
-    const ws = new WebSocketKeepAlive({
-      ...this.opts,
-      getUrl: async () => {
-        const url = `${this.opts.service}/app/api/v1/turbostream/turbostream`
+    const ws = websocket(
+      async () => {
+        const url = `${this.opts.service}/${this.opts.method}`
         this.opts.onInfo(`Turbostream: ${url}`)
         return url
       },
-    })
+      {
+        // Subscription frames are CBOR.
+        dataMode: 'text',
+        headers: this.opts.headers,
+        maxReconnectSeconds: this.opts.maxReconnectSeconds,
+        // `{}` means "on at the default interval". Omitting the option entirely
+        // would also default it on, but being explicit keeps the intent visible
+        // next to the caller-supplied override.
+        heartbeat: this.opts.heartbeatIntervalMs
+          ? { intervalMs: this.opts.heartbeatIntervalMs }
+          : {},
+        signal: this.opts.signal,
+        // Only retries are reported: a fatal error reaches the consumer as the
+        // iterator's rejection instead. `initialSetup` now means "first attempt of
+        // this reconnect cycle" rather than "before the first-ever successful
+        // connection".
+        onReconnect: (error, { attempt }) => {
+          this.opts.onReconnectError?.(error, attempt, attempt === 0)
+        },
+      },
+    )
     for await (const chunk of ws) {
-      try {
-        const record = JSON.parse(Buffer.from(chunk).toString())
-        yield record
-      } catch (err) {
-        this.opts.onError(new TurbostreamDecompressError(err))
-      }
+      const record = JSON.parse(Buffer.from(chunk).toString())
+      yield record
     }
   }
 }
 
-export const parseTurbostreamEventKindUnauthenticated = async (
+const parseTurbostreamEventKindUnauthenticated = async (
   evt: TurbostreamEventKind,
-  filterDids: string[],
-): Promise<TurbostreamCommitEvt | null> => {
-  if (filterDids.length === 0 || filterDids.includes(evt.did)) {
-    return formatTurbostreamCommitEvt(evt)
+  matchDid: ((did: string) => boolean) | null,
+): Promise<TurbostreamCommitEvt[]> => {
+  if (!matchDid || matchDid(evt.did)) {
+    return await formatTurbostreamCommitEvt(evt)
   }
-  return null
+  return []
 }
 
-const formatTurbostreamCommitEvt = async (evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt | null> => {
+const formatTurbostreamCommitEvt = async (evt: TurbostreamEventKind): Promise<TurbostreamCommitEvt[]> => {
   const meta: TurbostreamCommitMeta = {
     time_us: evt.message.time_us,
+    cursor: evt.message.cursor,
+    seq: evt.message.time_us,
     time: new Date(evt.message.time_us/(10**3)).toISOString(),
     rev: evt.message.commit.rev,
     uri: AtUri.make(evt.did, `${evt.message.commit.collection}/${evt.message.commit.rkey}`),
@@ -153,27 +190,27 @@ const formatTurbostreamCommitEvt = async (evt: TurbostreamEventKind): Promise<Tu
   }
 
   if (evt.message.commit.operation === 'create' || evt.message.commit.operation === 'update') {
-    const cid = CID.parse(evt.message.commit.cid)
-    const record = ipldToLex(evt.message.commit.record)
+    const cid = parseCid(evt.message.commit.cid)
+    const record = jsonToLex(evt.message.commit.record)
     if (!check.is(record, schema.map)) {
       throw new Error('lexicon records be a json object')
     }
-    return {
+    return [{
       ...meta,
       event: evt.message.commit.operation as 'create' | 'update',
       cid,
       record,
-    }
+    }]
   }
 
   if (evt.message.commit.operation === 'delete') {
-    return {
+    return [{
       ...meta,
       event: 'delete',
-    }
+    }]
   }
 
-  return null
+  return []
 }
 
 export class TurbostreamValidationError extends Error {

@@ -1,18 +1,18 @@
-export const encodeQueryParams = (obj: Record<string, unknown>): string => {
+export function encodeQueryParams(obj: Record<string, unknown>): string {
   const params = new URLSearchParams()
   Object.entries(obj).forEach(([key, value]) => {
     const encoded = encodeQueryParam(value)
     if (Array.isArray(encoded)) {
       encoded.forEach((enc) => params.append(key, enc))
     } else {
-      if (encoded) params.set(key, encoded)
+      params.set(key, encoded)
     }
   })
   return params.toString()
 }
 
 // Adapted from xrpc, but without any lex-specific knowledge
-const encodeQueryParam = (value: unknown): string | string[] => {
+function encodeQueryParam(value: unknown): string | string[] {
   if (typeof value === 'string') {
     return value
   }

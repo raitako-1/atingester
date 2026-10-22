@@ -4,6 +4,6 @@
  * Super thanks!!!!!!!!!!!!!!!!!!
  */
 
-export * from './firehose'
-export * from './jetstream'
-export * from './turbostream'
+export * from './firehose.js'
+export * from './jetstream.js'
+export * from './turbostream.js'

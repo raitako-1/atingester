@@ -1,9 +1,7 @@
-import type { JsonValue } from '@atproto/common-web'
-import type { JsonBlobRef, RepoRecord } from "@atproto/lexicon"
+import type { Cid, CidString, DidString, LexMap } from '@atproto/lex'
 import type { AccountEvt, CommitMeta, Event, IdentityEvt } from '@atproto/sync'
-import { CID } from 'multiformats/cid'
-import { StatusView } from './lexicon/types/app/bsky/actor/defs'
-import type { Account, Identity } from './lexicon/types/com/atproto/sync/subscribeRepos'
+import type { RawRecordJson } from '@bsky/jetstream'
+import { app, com } from './lexicons/index.js'
 
 export type IngesterEvent = Event | JetstreamEvent | TurbostreamCommitEvt
 
@@ -12,20 +10,21 @@ export type JetstreamEvent = JetstreamCommitEvt | JetstreamIdentityEvt | Jetstre
 
 export type JetstreamCommitEvt = JetstreamCreate | JetstreamUpdate | JetstreamDelete
 
-export type JetstreamCommitMeta = Omit<CommitMeta, 'seq' | 'commit' | 'blocks'> & {
+export type JetstreamCommitMeta = Omit<CommitMeta, 'commit' | 'blocks'> & {
   time_us: number
+  cursor?: number
 }
 
 export type JetstreamCreate = JetstreamCommitMeta & {
   event: 'create'
-  record: RepoRecord
-  cid: CID
+  record: LexMap
+  cid: Cid
 }
 
 export type JetstreamUpdate = JetstreamCommitMeta & {
   event: 'update'
-  record: RepoRecord
-  cid: CID
+  record: LexMap
+  cid: Cid
 }
 
 export type JetstreamDelete = JetstreamCommitMeta & {
@@ -34,30 +33,33 @@ export type JetstreamDelete = JetstreamCommitMeta & {
 
 export type JetstreamIdentityEvt = IdentityEvt & {
   time_us: number
+  cursor?: number
 }
 
 export type JetstreamAccountEvt = AccountEvt & {
   time_us: number
+  cursor?: number
 }
 
 
 export type TurbostreamCommitEvt = TurbostreamCreate | TurbostreamUpdate | TurbostreamDelete
 
-export type TurbostreamCommitMeta = Omit<CommitMeta, 'seq' | 'commit' | 'blocks'> & {
+export type TurbostreamCommitMeta = Omit<CommitMeta, 'commit' | 'blocks'> & {
   time_us: number
+  cursor?: number
   hydrated_metadata: TurbostreamEventKindHydratedMetadata
 }
 
 export type TurbostreamCreate = TurbostreamCommitMeta & {
   event: 'create'
-  record: RepoRecord
-  cid: CID
+  record: LexMap
+  cid: Cid
 }
 
 export type TurbostreamUpdate = TurbostreamCommitMeta & {
   event: 'update'
-  record: RepoRecord
-  cid: CID
+  record: LexMap
+  cid: Cid
 }
 
 export type TurbostreamDelete = TurbostreamCommitMeta & {
@@ -65,28 +67,20 @@ export type TurbostreamDelete = TurbostreamCommitMeta & {
 }
 
 
-export type JetstreamValue =
-  | JsonValue
-  | Uint8Array
-  | JsonBlobRef
-  | Array<JetstreamValue>
-  | { [key: string]: JetstreamValue }
-
-export type JetstreamRecord = Record<string, JetstreamValue>
-
-
 export type JetstreamEventKind = JetstreamEventKindAccount | JetstreamEventKindCommit | JetstreamEventKindIdentity
 
 export type JetstreamEventKindAccount = {
-  did: string
+  did: DidString
   time_us: number
+  cursor?: number
   kind: 'account'
-  account: Account
+  account: com.atproto.sync.subscribeRepos.Account
 }
 
 export type JetstreamEventKindCommit = {
-  did: string
+  did: DidString
   time_us: number
+  cursor?: number
   kind: 'commit'
   commit: JetstreamEventKindCommitOperationCreate | JetstreamEventKindCommitOperationUpdate | JetstreamEventKindCommitOperationDelete
 }
@@ -96,7 +90,7 @@ export type JetstreamEventKindCommitOperationCreate = {
   operation: 'create'
   collection: string
   rkey: string
-  record: JetstreamRecord
+  record: RawRecordJson
   cid: string
 }
 
@@ -105,7 +99,7 @@ export type JetstreamEventKindCommitOperationUpdate = {
   operation: 'update'
   collection: string
   rkey: string
-  record: JetstreamRecord
+  record: RawRecordJson
   cid: string
 }
 
@@ -117,16 +111,17 @@ export type JetstreamEventKindCommitOperationDelete = {
 }
 
 export type JetstreamEventKindIdentity = {
-  did: string
+  did: DidString
   time_us: number
+  cursor?: number
   kind: 'identity'
-  identity: Identity
+  identity: com.atproto.sync.subscribeRepos.Identity
 }
 
 
 export type TurbostreamEventKind = {
   at_uri: string
-  did: string
+  did: DidString
   time_us: number | null
   message: JetstreamEventKindCommit
   hydrated_metadata: TurbostreamEventKindHydratedMetadata
@@ -183,7 +178,7 @@ export type TurbostreamEventKindHydratedMetadataEmbedImagesView = {
 }
 
 export type TurbostreamEventKindHydratedMetadataEmbedVideoView = {
-  cid: string
+  cid: CidString
   playlist: string
   thumbnail: string | null
   alt: string | null
@@ -206,7 +201,7 @@ export type TurbostreamEventKindHydratedMetadataEmbedRecordView = {
   record:
     | {
       author: TurbostreamEventKindHydratedMetadataUserBasic
-      cid: string
+      cid: CidString
       indexed_at: string
       uri: string
       value: TurbostreamEventKindHydratedMetadataPostRecord
@@ -227,7 +222,7 @@ export type TurbostreamEventKindHydratedMetadataEmbedRecordView = {
       uri: string
       blocked: true
       author: {
-        did: string
+        did: DidString
         viewer: TurbostreamEventKindHydratedMetadataActorViewerState | null
         py_type: 'app.bsky.feed.defs#blockedAuthor'
       }
@@ -240,8 +235,8 @@ export type TurbostreamEventKindHydratedMetadataEmbedRecordView = {
     }
     | {
       uri: string
-      cid: string
-      did: string
+      cid: CidString
+      did: DidString
       creator: TurbostreamEventKindHydratedMetadataUser
       displayName: string
       description: string | null
@@ -264,7 +259,7 @@ export type TurbostreamEventKindHydratedMetadataEmbedRecordView = {
     }
     | {
       uri: string
-      cid: string
+      cid: CidString
       creator: TurbostreamEventKindHydratedMetadataUser
       name: string
       purpose:
@@ -283,7 +278,7 @@ export type TurbostreamEventKindHydratedMetadataEmbedRecordView = {
     }
     | {
       uri: string
-      cid: string
+      cid: CidString
       creator: TurbostreamEventKindHydratedMetadataUser
       likeCount: number | null
       viewer: {
@@ -353,7 +348,7 @@ export type TurbostreamEventKindHydratedMetadataEmbedRecord = {
 export type TurbostreamEventKindHydratedMetadataFacet = {
   features: (
     | {
-      did: string
+      did: DidString
       py_type: 'app.bsky.richtext.facet#mention'
     }
     | {
@@ -384,7 +379,7 @@ export type TurbostreamEventKindHydratedMetadataLabel = {
   src: string
   uri: string
   val: string
-  cid: string | null
+  cid: CidString | null
   exp: string | null
   neg: boolean | null
   sig: Uint8Array | null
@@ -393,7 +388,7 @@ export type TurbostreamEventKindHydratedMetadataLabel = {
 }
 
 export type TurbostreamEventKindHydratedMetadataList = {
-  cid: string
+  cid: CidString
   name: string
   purpose: 'app.bsky.graph.defs#modlist' | 'app.bsky.graph.defs#curatelist' | 'app.bsky.graph.defs#referencelist' | (string & {})
   uri: string
@@ -451,7 +446,7 @@ export type TurbostreamEventKindHydratedMetadataPostRecord = {
 }
 
 export type TurbostreamEventKindHydratedMetadataStarterPackViewBasic = {
-  cid: string
+  cid: CidString
   creator: TurbostreamEventKindHydratedMetadataUserBasic
   indexed_at: string
   record: {
@@ -477,12 +472,12 @@ export type TurbostreamEventKindHydratedMetadataStarterPackViewBasic = {
 
 export type TurbostreamEventKindHydratedMetadataStrongRef = {
     uri: string
-    cid: string
+    cid: CidString
     py_type: 'com.atproto.repo.strongRef'
   }
 
 export type TurbostreamEventKindHydratedMetadataUserBasic = {
-  did: string
+  did: DidString
   handle: string
   associated: {
     chat: {
@@ -515,7 +510,7 @@ export type TurbostreamEventKindHydratedMetadataUserBasic = {
     py_type: 'app.bsky.actor.defs#verificationState'
   } | null
   viewer: TurbostreamEventKindHydratedMetadataActorViewerState | null
-  status?: StatusView
+  status?: app.bsky.actor.defs.StatusView
   py_type: 'app.bsky.actor.defs#profileViewBasic'
 }
 
@@ -537,7 +532,7 @@ export type TurbostreamEventKindHydratedMetadataUserDetailed = Omit<TurbostreamE
 
 export type TurbostreamEventKindHydratedMetadataPost = {
   author: TurbostreamEventKindHydratedMetadataUserBasic
-  cid: string
+  cid: CidString
   indexed_at: string
   record: TurbostreamEventKindHydratedMetadataPostRecord
   uri: string
@@ -548,7 +543,7 @@ export type TurbostreamEventKindHydratedMetadataPost = {
   reply_count: number | null
   repost_count: number | null
   threadgate: {
-    cid: string | null
+    cid: CidString | null
     lists: TurbostreamEventKindHydratedMetadataList[] | null
     record: {
       created_at: string

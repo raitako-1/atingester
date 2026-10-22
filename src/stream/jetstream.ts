@@ -1,21 +1,19 @@
 import { check, createDeferrable, type Deferrable, schema, wait } from '@atproto/common'
-import { ipldToLex } from '@atproto/lexicon'
+import { jsonToLex, parseCid } from '@atproto/lex'
 import type { FirehoseOptions } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
-import { WebSocketKeepAlive } from '@atproto/ws-client'
+import { type HeadersInit, websocket } from '@atproto/ws-client'
 import { createDCtx, decompressUsingDict, freeDCtx } from '@bokuweb/zstd-wasm'
 import fs from 'fs'
-import { CID } from 'multiformats/cid'
 import path from 'path'
-import { type ClientOptions } from 'ws'
 import {
   parseAccount,
   parseIdentity,
-} from './firehose'
-import type { JetstreamCommitEvt, JetstreamCommitMeta, JetstreamEvent, JetstreamEventKind, JetstreamEventKindCommit } from '../types'
-import { encodeQueryParams } from './util'
+} from './firehose.js'
+import type { JetstreamCommitEvt, JetstreamCommitMeta, JetstreamEvent, JetstreamEventKind, JetstreamEventKindCommit } from '../types.js'
+import { encodeQueryParams } from './util.js'
 
-const dict = fs.readFileSync(path.resolve(__dirname, '../../dict/zstd_dictionary'))
+const dict = fs.readFileSync(path.resolve(import.meta.dirname, '../../dict/zstd_dictionary'))
 
 export type JetstreamOptions = Omit<FirehoseOptions,
   | 'handleEvent'
@@ -24,7 +22,7 @@ export type JetstreamOptions = Omit<FirehoseOptions,
 > & {
   compress?: boolean
   filterDids?: string[]
-  handleEvent: (evt: JetstreamEvent) => Awaited<void>
+  handleEvent: (evt: JetstreamEvent) => void | Promise<void>
   onInfo: (info: string) => void
 }
 
@@ -32,6 +30,8 @@ export class Jetstream {
   private sub: JetstreamSubscription<JetstreamEventKind>
   private abortController: AbortController
   private destoryDefer: Deferrable
+  private matchCollection: ((col: string) => boolean) | null = null
+  private matchDid: ((did: string) => boolean) | null = null
 
   constructor(public opts: JetstreamOptions) {
     this.destoryDefer = createDeferrable()
@@ -39,17 +39,54 @@ export class Jetstream {
     if (this.opts.getCursor && this.opts.runner) {
       throw new Error('Must set only `getCursor` or `runner`')
     }
+    if (opts.filterCollections) {
+      const exact = new Set<string>()
+      const prefixes = new Set<string>()
+
+      for (const pattern of opts.filterCollections) {
+        if (pattern.endsWith('.*')) {
+          prefixes.add(pattern.slice(0, -2))
+        } else {
+          exact.add(pattern)
+        }
+      }
+      this.matchCollection = (col: string): boolean => {
+        if (exact.has(col)) return true
+        for (const prefix of prefixes) {
+          if (col.startsWith(prefix)) return true
+        }
+        return false
+      }
+    }
+    if (opts.filterDids) {
+      const exact = new Set<string>()
+
+      for (const pattern of opts.filterDids) {
+        exact.add(pattern)
+      }
+      this.matchDid = (did: string): boolean => {
+        if (exact.has(did)) return true
+        return false
+      }
+    }
+    // Listed explicitly rather than spread: the old `ClientOptions &` shape let
+    // arbitrary `ws` options through, which Subscription no longer accepts — a
+    // spread would silently drop them.
     this.sub = new JetstreamSubscription({
-      ...opts,
-      service: opts.service ?? 'wss://jetstream1.us-east.bsky.network',
+      service: opts.service ?? 'wss://jetstream1.us-west.bsky.network',
+      method: 'subscribe',
+      maxReconnectSeconds: opts.maxReconnectSeconds,
+      heartbeatIntervalMs: opts.heartbeatIntervalMs,
+      headers: opts.headers,
       signal: this.abortController.signal,
+      onInfo: opts.onInfo,
       getParams: async () => {
         const getCursorFn = this.opts.runner?.getCursor ?? this.opts.getCursor
         const cursor = await getCursorFn?.()
         const wantedCollections = this.opts.excludeCommit ? undefined : this.opts.filterCollections
         const wantedDids = (this.opts.excludeIdentity && this.opts.excludeAccount && this.opts.excludeCommit) ? undefined : this.opts.filterDids
         const onlyCommit = (this.opts.excludeIdentity && this.opts.excludeAccount && !this.opts.excludeCommit) ? true : undefined
-        return {
+        const params = {
           wantedCollections,
           wantedDids,
           excludeIdentity: this.opts.excludeIdentity,
@@ -59,6 +96,7 @@ export class Jetstream {
           cursor,
           compress: this.opts.compress,
         }
+        return Object.fromEntries(Object.entries(params).filter(([k, v]) => v !== undefined))
       },
       validate: (value: unknown) => {
         try {
@@ -82,7 +120,7 @@ export class Jetstream {
         }
       }
     } catch (err) {
-      if (err && err['name'] === 'AbortError') {
+      if ((err as any)?.name === 'AbortError') {
         this.destoryDefer.resolve()
         return
       }
@@ -92,36 +130,43 @@ export class Jetstream {
     }
   }
 
-  private async parseEvt(evt: JetstreamEventKind): Promise<JetstreamEvent | null> {
+  private async parseEvt(evt: JetstreamEventKind): Promise<JetstreamEvent[]> {
     try {
-      if (evt.kind === 'commit' && !this.opts.excludeCommit) {
-        return await parseJetstreamKindCommitUnauthenticated(evt, this.opts.filterCollections ?? [], this.opts.filterDids ?? [])
-      } else if (evt.kind === 'account' && !this.opts.excludeAccount) {
-        const parsed = parseAccount(evt.account)
-        return parsed ? {...parsed, time_us: evt.time_us} : null
-      } else if (evt.kind === 'identity' && !this.opts.excludeIdentity) {
+      if (evt.kind === 'commit') {
+        if (this.opts.excludeCommit) return []
+
+        return await parseJetstreamKindCommitUnauthenticated(evt, this.matchCollection, this.matchDid)
+      } else if (evt.kind === 'account') {
+        if (this.opts.excludeAccount) return []
+
+        const parsed = parseAccount(evt.account, this.matchDid)
+        return parsed ? [{...parsed, time_us: evt.time_us, cursor: evt.cursor}] : []
+      } else if (evt.kind === 'identity') {
+        if (this.opts.excludeIdentity) return []
+
         const parsed = await parseIdentity(
           this.opts.idResolver,
           evt.identity,
+          this.matchDid,
           this.opts.unauthenticatedHandles,
         )
-        return parsed ? {...parsed, time_us: evt.time_us} : null
+        return parsed ? [{...parsed, time_us: evt.time_us, cursor: evt.cursor}] : []
       } else {
-        return null
+        return []
       }
     } catch (err) {
       this.opts.onError(new JetstreamParseError(err, evt))
-      return null
+      return []
     }
   }
 
   private async processEvt(evt: JetstreamEventKind) {
     const parsed = await this.parseEvt(evt)
-    if (parsed) {
+    for (const write of parsed) {
       try {
-        await this.opts.handleEvent(parsed)
+        await this.opts.handleEvent(write)
       } catch (err) {
-        this.opts.onError(new JetstreamHandlerError(err, parsed))
+        this.opts.onError(new JetstreamHandlerError(err, write))
       }
     }
   }
@@ -132,16 +177,18 @@ export class Jetstream {
   }
 }
 
-export class JetstreamSubscription<T = unknown> {
+class JetstreamSubscription<T = unknown> {
   constructor(
-    public opts: ClientOptions & {
+    public opts: {
       service: string
+      method: string
       maxReconnectSeconds?: number
       heartbeatIntervalMs?: number
+      /** Applied to the connection's upgrade request (Node.js only). */
+      headers?: HeadersInit
       signal?: AbortSignal
       compress?: boolean
       onInfo: (info: string) => void
-      onError: (err: Error) => void
       validate: (obj: unknown) => T | undefined
       onReconnectError?: (
         error: unknown,
@@ -156,49 +203,68 @@ export class JetstreamSubscription<T = unknown> {
   ) {}
 
   async *[Symbol.asyncIterator](): AsyncGenerator<T> {
-    const ws = new WebSocketKeepAlive({
-      ...this.opts,
-      getUrl: async () => {
+    const ws = websocket(
+      async () => {
         const params = (await this.opts.getParams?.()) ?? {}
         const query = encodeQueryParams(params)
-        const url = `${this.opts.service}/subscribe?${query}`
+        const url = `${this.opts.service}/${this.opts.method}?${query}`
         this.opts.onInfo(`Jetstream: ${url}`)
         return url
       },
-    })
+      {
+        // Subscription frames are CBOR.
+        dataMode: this.opts.compress ? 'binary' : 'text',
+        headers: this.opts.headers,
+        maxReconnectSeconds: this.opts.maxReconnectSeconds,
+        // `{}` means "on at the default interval". Omitting the option entirely
+        // would also default it on, but being explicit keeps the intent visible
+        // next to the caller-supplied override.
+        heartbeat: this.opts.heartbeatIntervalMs
+          ? { intervalMs: this.opts.heartbeatIntervalMs }
+          : {},
+        signal: this.opts.signal,
+        // Only retries are reported: a fatal error reaches the consumer as the
+        // iterator's rejection instead. `initialSetup` now means "first attempt of
+        // this reconnect cycle" rather than "before the first-ever successful
+        // connection".
+        onReconnect: (error, { attempt }) => {
+          this.opts.onReconnectError?.(error, attempt, attempt === 0)
+        },
+      },
+    )
     for await (const chunk of ws) {
-      try {
-        if (this.opts.compress) {
-          const dctx = createDCtx()
-          const decompressed = decompressUsingDict(dctx, chunk, dict)
-          freeDCtx(dctx)
-          const record = JSON.parse(Buffer.from(decompressed).toString())
-          yield record
-        } else {
-          const record = JSON.parse(Buffer.from(chunk).toString())
-          yield record
-        }
-      } catch (err) {
-        this.opts.onError(new JetstreamConverterError(err))
+      if (this.opts.compress) {
+        const dctx = createDCtx()
+        const decompressed = decompressUsingDict(dctx, chunk as Uint8Array<ArrayBuffer>, dict)
+        freeDCtx(dctx)
+        const record = JSON.parse(Buffer.from(decompressed).toString())
+        yield record
+      } else {
+        const record = JSON.parse(Buffer.from(chunk).toString())
+        yield record
       }
     }
   }
 }
 
-export const parseJetstreamKindCommitUnauthenticated = async (
+const parseJetstreamKindCommitUnauthenticated = async (
   evt: JetstreamEventKindCommit,
-  filterCollections: string[],
-  filterDids: string[],
-): Promise<JetstreamCommitEvt | null> => {
-  if ((filterCollections.length === 0 || filterCollections.includes(evt.commit.collection)) && (filterDids.length === 0 || filterDids.includes(evt.did))) {
-    return formatJetstreamCommitEvt(evt)
+  matchCollection: ((col: string) => boolean) | null,
+  matchDid: ((did: string) => boolean) | null,
+): Promise<JetstreamCommitEvt[]> => {
+  if (!matchCollection) matchCollection = () => true
+  if (!matchDid) matchDid = () => true
+  if (matchCollection(evt.commit.collection) && matchDid(evt.did)) {
+    return await formatJetstreamCommitEvts(evt)
   }
-  return null
+  return []
 }
 
-const formatJetstreamCommitEvt = async (evt: JetstreamEventKindCommit): Promise<JetstreamCommitEvt | null> => {
+const formatJetstreamCommitEvts = async (evt: JetstreamEventKindCommit): Promise<JetstreamCommitEvt[]> => {
   const meta: JetstreamCommitMeta = {
     time_us: evt.time_us,
+    cursor: evt.cursor,
+    seq: evt.time_us,
     time: new Date(evt.time_us/(10**3)).toISOString(),
     rev: evt.commit.rev,
     uri: AtUri.make(evt.did, `${evt.commit.collection}/${evt.commit.rkey}`),
@@ -208,27 +274,27 @@ const formatJetstreamCommitEvt = async (evt: JetstreamEventKindCommit): Promise<
   }
 
   if (evt.commit.operation === 'create' || evt.commit.operation === 'update') {
-    const cid = CID.parse(evt.commit.cid)
-    const record = ipldToLex(evt.commit.record)
+    const cid = parseCid(evt.commit.cid)
+    const record = jsonToLex(evt.commit.record)
     if (!check.is(record, schema.map)) {
       throw new Error('lexicon records be a json object')
     }
-    return {
+    return [{
       ...meta,
-      event: evt.commit.operation as 'create' | 'update',
+      event: evt.commit.operation,
       cid,
       record,
-    }
+    }]
   }
 
   if (evt.commit.operation === 'delete') {
-    return {
+    return [{
       ...meta,
       event: 'delete',
-    }
+    }]
   }
 
-  return null
+  return []
 }
 
 export class JetstreamValidationError extends Error {

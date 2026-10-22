@@ -1,9 +1,9 @@
 import { type FirehoseOptions } from '@atproto/sync'
 import { init } from '@bokuweb/zstd-wasm'
-import { Firehose, Jetstream, Turbostream } from './stream'
-import type { IngesterEvent } from './types'
+import { Firehose, Jetstream, Turbostream } from './stream/index.js'
+import type { IngesterEvent } from './types.js'
 
-export const initIngester = async (path?: string): Promise<void> => await init(path)
+export const initIngester = async (): Promise<void> => await init()
 
 export type SubscriptionMode = 'Firehose' | 'Jetstream' | 'Turbostream'
 
