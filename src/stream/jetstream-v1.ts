@@ -81,6 +81,7 @@ export class JetstreamV1 {
       signal: this.abortController.signal,
       compress: opts.compress,
       onInfo: opts.onInfo,
+      onError: opts.onError,
       getParams: async () => {
         const getCursorFn = this.opts.runner?.getCursor ?? this.opts.getCursor
         const cursor = await getCursorFn?.()
@@ -190,6 +191,7 @@ class JetstreamV1Subscription<T = unknown> {
       signal?: AbortSignal
       compress?: boolean
       onInfo: (info: string) => void
+      onError: (err: Error) => void
       validate: (obj: unknown) => T | undefined
       onReconnectError?: (
         error: unknown,
@@ -234,15 +236,19 @@ class JetstreamV1Subscription<T = unknown> {
       },
     )
     for await (const chunk of ws) {
-      if (this.opts.compress) {
-        const dctx = createDCtx()
-        const decompressed = decompressUsingDict(dctx, chunk as Uint8Array<ArrayBuffer>, dict)
-        freeDCtx(dctx)
-        const record = JSON.parse(Buffer.from(decompressed).toString())
-        yield record
-      } else {
-        const record = JSON.parse(Buffer.from(chunk).toString())
-        yield record
+      try {
+        if (this.opts.compress) {
+          const dctx = createDCtx()
+          const decompressed = decompressUsingDict(dctx, chunk as Uint8Array<ArrayBuffer>, dict)
+          freeDCtx(dctx)
+          const record = JSON.parse(Buffer.from(decompressed).toString())
+          yield record
+        } else {
+          const record = JSON.parse(Buffer.from(chunk).toString())
+          yield record
+        }
+      } catch (err) {
+        this.opts.onError(new JetstreamV1ConverterError(err))
       }
     }
   }

@@ -48,7 +48,6 @@ export type JetstreamCommitEvt = JetstreamCreate | JetstreamUpdate | JetstreamDe
 export type JetstreamCommitMeta = Omit<CommitMeta, 'commit' | 'blocks'> & {
   cursor: number
   timeUs: DatetimeString
-  witnessedAt: DatetimeString
 }
 
 export type JetstreamCreate = JetstreamCommitMeta & {
@@ -70,19 +69,16 @@ export type JetstreamDelete = JetstreamCommitMeta & {
 export type JetstreamIdentityEvt = IdentityEvt & {
   cursor: number
   timeUs: DatetimeString
-  witnessedAt: DatetimeString
 }
 
 export type JetstreamAccountEvt = AccountEvt & {
   cursor: number
   timeUs: DatetimeString
-  witnessedAt: DatetimeString
 }
 
 export type JetstreamSyncEvt = SyncEvt & {
   cursor: number
   timeUs: DatetimeString
-  witnessedAt: DatetimeString
 }
 
 

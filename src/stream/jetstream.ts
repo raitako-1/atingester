@@ -1,5 +1,5 @@
-import { check, createDeferrable, type Deferrable, schema, wait } from '@atproto/common'
-import { jsonToLex, parseCid } from '@atproto/lex'
+import { createDeferrable, type Deferrable, wait } from '@atproto/common'
+import { parseCid } from '@atproto/lex'
 import type { FirehoseOptions } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
 import { type HeadersInit, websocket } from '@atproto/ws-client'
@@ -14,11 +14,6 @@ import type {
   JetstreamCommitEvt,
   JetstreamCommitMeta,
   JetstreamEvent,
-  JetstreamEventKind,
-  JetstreamEventKindMessageCommit,
-  JetstreamEventKindMessageIdentity,
-  JetstreamEventKindMessageAccount,
-  JetstreamEventKindMessageSync,
 } from '../types.js'
 //import { encodeQueryParams } from './util.js'
 
@@ -33,7 +28,7 @@ export type JetstreamOptions = Omit<FirehoseOptions,
 }
 
 export class Jetstream {
-  private sub: JetstreamSubscription<JetstreamEventKind>
+  private sub: JetstreamSubscription<network.bsky.jetstream.subscribeEvents.$Message>
   private abortController: AbortController
   private destoryDefer: Deferrable
   private matchCollection: ((col: string) => boolean) | null = null
@@ -85,7 +80,7 @@ export class Jetstream {
     // spread would silently drop them.
     this.sub = new JetstreamSubscription({
       service: opts.service ?? 'wss://jetstream.us-west.bsky.network',
-      method: network.bsky.jetstream.subscribeEvents.$nsid,
+      method: network.bsky.jetstream.subscribeEvents.$lxm,
       maxReconnectSeconds: opts.maxReconnectSeconds,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       headers: opts.headers,
@@ -95,6 +90,7 @@ export class Jetstream {
       filterDids: opts.filterDids,
       kinds,
       onInfo: opts.onInfo,
+      onError: opts.onError,
       getParams: async () => {
         const getCursorFn = this.opts.runner?.getCursor ?? this.opts.getCursor
         const cursor = await getCursorFn?.()
@@ -114,10 +110,11 @@ export class Jetstream {
         return Object.fromEntries(Object.entries(params).filter(([k, v]) => v !== undefined))
       },
       validate: (value: unknown) => {
-        try {
-          return value as JetstreamEventKind // TODO validate??
-        } catch (err) {
-          this.opts.onError(new JetstreamValidationError(err, value))
+        const result = network.bsky.jetstream.subscribeEvents.$message.safeParse(value)
+        if (result.success) {
+          return result.value
+        } else {
+          this.opts.onError(new JetstreamValidationError(result.reason, value))
         }
       },
     })
@@ -126,20 +123,16 @@ export class Jetstream {
   async start(): Promise<void> {
     try {
       for await (const evt of this.sub) {
-        if (evt.$type === 'error') throw new JetstreamSubscriptionError(evt.error)
-        if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#info`) throw new JetstreamSubscriptionError(evt.payload.info.name + ': ' + evt.payload.info.message)
         if (this.opts.runner) {
-          this.opts.runner.trackEvent(evt.payload.did, evt.payload.seq, async () => {
-            await this.processEvt(evt as {
-              $type: "message"
-              payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
-            })
+          const parsed = didAndSeqForEvt(evt)
+          if (!parsed) {
+            continue
+          }
+          this.opts.runner.trackEvent(parsed.did, parsed.seq, async () => {
+            await this.processEvt(evt)
           })
         } else {
-          await this.processEvt(evt as {
-            $type: "message"
-            payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
-          })
+          await this.processEvt(evt)
         }
       }
     } catch (err) {
@@ -153,38 +146,34 @@ export class Jetstream {
     }
   }
 
-  private async parseEvt(evt: {
-    $type: "message"
-    payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
-  }): Promise<JetstreamEvent[]> {
+  private async parseEvt(
+    evt: network.bsky.jetstream.subscribeEvents.$Message,
+  ): Promise<JetstreamEvent[]> {
     try {
-      if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#commit`) {
+      if (network.bsky.jetstream.subscribeEvents.commit.$isTypeOf(evt)) {
         if (this.opts.excludeCommit) return []
 
-        return await parseJetstreamKindCommitUnauthenticated(evt as {
-          $type: "message"
-          payload: JetstreamEventKindMessageCommit
-        }, this.matchCollection, this.matchDid)
-      } else if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#account`) {
+        return await parseJetstreamKindCommitUnauthenticated(evt, this.matchCollection, this.matchDid)
+      } else if (network.bsky.jetstream.subscribeEvents.account.$isTypeOf(evt)) {
         if (this.opts.excludeAccount) return []
 
-        const parsed = parseAccount(evt.payload.account, this.matchDid)
-        return parsed ? [{...parsed, cursor: evt.payload.seq, timeUs: evt.payload.time, witnessedAt: evt.payload.witnessedAt}] : []
-      } else if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#identity`) {
+        const parsed = parseAccount(evt.account, this.matchDid)
+        return parsed ? [{...parsed, cursor: evt.seq, timeUs: evt.time}] : []
+      } else if (network.bsky.jetstream.subscribeEvents.identity.$isTypeOf(evt)) {
         if (this.opts.excludeIdentity) return []
 
         const parsed = await parseIdentity(
           this.opts.idResolver,
-          evt.payload.identity,
+          evt.identity,
           this.matchDid,
           this.opts.unauthenticatedHandles,
         )
-        return parsed ? [{...parsed, cursor: evt.payload.seq, timeUs: evt.payload.time, witnessedAt: evt.payload.witnessedAt}] : []
-      } else if (evt.payload.$type === `${network.bsky.jetstream.subscribeEvents.$nsid}#sync`) {
+        return parsed ? [{...parsed, cursor: evt.seq, timeUs: evt.time}] : []
+      } else if (network.bsky.jetstream.subscribeEvents.sync.$isTypeOf(evt)) {
         if (this.opts.excludeSync) return []
 
-        const parsed = await parseSync(evt.payload.sync, this.matchDid)
-        return parsed ? [{...parsed, cursor: evt.payload.seq, timeUs: evt.payload.time, witnessedAt: evt.payload.witnessedAt}] : []
+        const parsed = await parseSync(evt.sync, this.matchDid)
+        return parsed ? [{...parsed, cursor: evt.seq, timeUs: evt.time}] : []
       } else {
         return []
       }
@@ -194,10 +183,7 @@ export class Jetstream {
     }
   }
 
-  private async processEvt(evt: {
-    $type: "message"
-    payload: JetstreamEventKindMessageCommit | JetstreamEventKindMessageIdentity | JetstreamEventKindMessageAccount | JetstreamEventKindMessageSync
-  }) {
+  private async processEvt(evt: network.bsky.jetstream.subscribeEvents.$Message) {
     const parsed = await this.parseEvt(evt)
     for (const write of parsed) {
       try {
@@ -229,6 +215,7 @@ class JetstreamSubscription<T = unknown> {
       filterDids?: string[]
       kinds?: Kind[]
       onInfo: (info: string) => void
+      onError: (err: Error) => void
       validate: (obj: unknown) => T | undefined
       onReconnectError?: (
         error: unknown,
@@ -292,54 +279,72 @@ class JetstreamSubscription<T = unknown> {
       },
     )
     for await (const chunk of ws) {
-      const record = JSON.parse(Buffer.from(chunk).toString())
-      yield record
+      const record = JSON.parse(chunk)
+      if (record.$type === 'error') {
+        this.opts.onError(new JetstreamConverterError(record.error))
+        continue
+      }
+      const result = this.opts.validate(record.payload)
+      if (result !== undefined) {
+        yield result
+      }
     }
   }
 }
 
+const didAndSeqForEvt = (
+  evt: network.bsky.jetstream.subscribeEvents.$Message,
+): { did: string; seq: number } | undefined => {
+  if (
+    network.bsky.jetstream.subscribeEvents.commit.$isTypeOf(evt) ||
+    network.bsky.jetstream.subscribeEvents.account.$isTypeOf(evt) ||
+    network.bsky.jetstream.subscribeEvents.identity.$isTypeOf(evt) ||
+    network.bsky.jetstream.subscribeEvents.sync.$isTypeOf(evt)
+  ) {
+    return { seq: evt.seq, did: evt.did }
+  }
+  return undefined
+}
+
 const parseJetstreamKindCommitUnauthenticated = async (
-  evt: {$type: 'message', payload: JetstreamEventKindMessageCommit},
+  evt: network.bsky.jetstream.subscribeEvents.Commit,
   matchCollection: ((col: string) => boolean) | null,
   matchDid: ((did: string) => boolean) | null,
 ): Promise<JetstreamCommitEvt[]> => {
   if (!matchCollection) matchCollection = () => true
   if (!matchDid) matchDid = () => true
-  if (matchCollection(evt.payload.collection) && matchDid(evt.payload.did)) {
+  if (matchCollection(evt.collection) && matchDid(evt.did)) {
     return await formatJetstreamCommitEvts(evt)
   }
   return []
 }
 
-const formatJetstreamCommitEvts = async (evt: {$type: 'message', payload: JetstreamEventKindMessageCommit}): Promise<JetstreamCommitEvt[]> => {
+const formatJetstreamCommitEvts = async (evt: network.bsky.jetstream.subscribeEvents.Commit): Promise<JetstreamCommitEvt[]> => {
   const meta: JetstreamCommitMeta = {
-    cursor: evt.payload.seq,
-    timeUs: evt.payload.time,
-    witnessedAt: evt.payload.witnessedAt,
-    seq: evt.payload.seq,
-    time: evt.payload.time,
-    rev: evt.payload.rev,
-    uri: AtUri.make(evt.payload.did, `${evt.payload.collection}/${evt.payload.rkey}`),
-    did: evt.payload.did,
-    collection: evt.payload.collection,
-    rkey: evt.payload.rkey,
+    cursor: evt.seq,
+    timeUs: evt.time,
+    seq: evt.seq,
+    time: evt.time,
+    rev: evt.rev,
+    uri: AtUri.make(evt.did, `${evt.collection}/${evt.rkey}`),
+    did: evt.did,
+    collection: evt.collection,
+    rkey: evt.rkey,
   }
 
-  if (evt.payload.operation === 'create' || evt.payload.operation === 'update') {
-    const cid = parseCid(evt.payload.cid)
-    const record = jsonToLex(evt.payload.record)
-    if (!check.is(record, schema.map)) {
-      throw new Error('lexicon records be a json object')
-    }
+  if (evt.operation === 'create' || evt.operation === 'update') {
+    if (!evt.cid) return []
+    const cid = parseCid(evt.cid)
+    if (!evt.record) return []
     return [{
       ...meta,
-      event: evt.payload.operation,
+      event: evt.operation as 'create' | 'update',
       cid,
-      record,
+      record: evt.record,
     }]
   }
 
-  if (evt.payload.operation === 'delete') {
+  if (evt.operation === 'delete') {
     return [{
       ...meta,
       event: 'delete',
@@ -368,7 +373,7 @@ export class JetstreamValidationError extends Error {
 export class JetstreamParseError extends Error {
   constructor(
     err: unknown,
-    public event: JetstreamEventKind,
+    public event: network.bsky.jetstream.subscribeEvents.$Message,
   ) {
     super('error in parsing and authenticating jetstream event', { cause: err })
   }
